@@ -15,6 +15,8 @@
 import type {
 	ActionLogClickEntry,
 	ActionLogEntry,
+	ActionLogHoverEntry,
+	ActionLogKeyEntry,
 	ActionLogTypeEntry,
 	BoundingBoxLike,
 } from "./actionLog.js";
@@ -74,20 +76,45 @@ export function logMsToFilmMs(logMs: number): number {
 	return Math.max(0, logMs);
 }
 
-type ZoomableEntry = ActionLogClickEntry | ActionLogTypeEntry;
+type ZoomableEntry =
+	| ActionLogClickEntry
+	| ActionLogTypeEntry
+	| ActionLogHoverEntry
+	| (ActionLogKeyEntry & { boundingBox: BoundingBoxLike });
 
 /**
  * A `click` step and a `type` step (CR-LENSMITH-A002-6) both drive a
  * choreographed move to a bounding box and both belong in the zoom fragment —
  * `wait` entries never do, having no bounding box to frame a zoom around.
+ * CR-LENSMITH-A010-8: a native `hover` (it has a box), and a `key` step that named a
+ * `zoom` locator (its box), are zoomable too; a key without `zoom` has no box and emits none.
  */
 function isZoomableEntry(entry: ActionLogEntry): entry is ZoomableEntry {
-	return entry.type === "click" || entry.type === "type";
+	if (entry.type === "click" || entry.type === "type") return true;
+	if (entry.type === "hover" || entry.type === "key") return entry.boundingBox !== undefined;
+	return false;
 }
 
-/** The moment the entry's zoom-worthy action finished — a click's own click, a type step's last character. */
+/**
+ * The moment the entry's zoom-worthy action finished — a click's own click, a type step's last
+ * character, a hover's arrival on its target, a key's press.
+ */
 function zoomEndMs(entry: ZoomableEntry): number {
-	return entry.type === "click" ? entry.clickedAtMs : entry.endedAtMs;
+	switch (entry.type) {
+		case "click":
+			return entry.clickedAtMs;
+		case "type":
+			return entry.endedAtMs;
+		case "hover":
+			return entry.hoveredAtMs;
+		case "key":
+			return entry.atMs;
+	}
+}
+
+/** When the region starts: the travel start, or for a key (no travel) the press itself. */
+function zoomStartMs(entry: ZoomableEntry): number {
+	return entry.type === "key" ? entry.atMs : entry.startedAtMs;
 }
 
 /** Clamps to `compose`'s validated `0..1` range, recording a warning if clamping was needed. */
@@ -133,7 +160,7 @@ function fitsInZoomedFrame(
 }
 
 /**
- * One region per `click` or `type` entry in the action log. `wait` entries
+ * One region per `click`, `type`, `hover` or zoomed `key` entry in the action log. `wait` entries
  * are ignored — they never appear as choreographed moves and have no
  * bounding box to frame a zoom around.
  *
@@ -157,7 +184,7 @@ export function emitZoomRegions(
 		const cy = clampUnit(centerY / viewport.height, `focus.cy for step ${entry.index}`, warnings);
 		const focus = { cx, cy };
 
-		let startMs = logMsToFilmMs(entry.startedAtMs);
+		let startMs = logMsToFilmMs(zoomStartMs(entry));
 		const previous = zoomRegions[zoomRegions.length - 1];
 		if (previous && !previous.connect) {
 			const earliest =

@@ -296,3 +296,69 @@ describe("Invariant: no dwell-heuristic code path is reachable from the new `dri
 		}
 	});
 });
+
+describe("emitZoomRegions — native hover and key (CR-LENSMITH-A010-8)", () => {
+	const hover: ActionLogEntry = {
+		index: 0,
+		type: "hover",
+		app: "com.example.app",
+		selector: "ax:AXRow",
+		ax: { role: "AXRow" },
+		startedAtMs: 1000,
+		hoveredAtMs: 1500,
+		screenX: 0,
+		screenY: 0,
+		boundingBox: { x: 100, y: 50, width: 40, height: 20 },
+		settleMs: 300,
+		settleReason: "quiet",
+	} as ActionLogEntry;
+	const zoomedKey: ActionLogEntry = {
+		index: 1,
+		type: "key",
+		app: "com.example.app",
+		keys: ["opt+space"],
+		atMs: 6000,
+		settleMs: 200,
+		settleReason: "quiet",
+		boundingBox: { x: 700, y: 300, width: 60, height: 30 },
+	};
+	const plainKey: ActionLogEntry = {
+		index: 2,
+		type: "key",
+		app: "com.example.app",
+		keys: ["return"],
+		atMs: 9000,
+		settleMs: 200,
+		settleReason: "quiet",
+	};
+
+	it("emits a hover region ending at hoveredAtMs + settle + hold", () => {
+		const { fragment } = emitZoomRegions([hover], VIEWPORT);
+		expect(fragment.zoomRegions).toHaveLength(1);
+		const [region] = fragment.zoomRegions;
+		expect(region?.id).toBe("zoom-0");
+		expect(region?.startMs).toBe(1000);
+		expect(region?.endMs).toBe(1500 + 300 + SETTLE_PACING.resultHoldMs);
+		expect(region?.focus).toEqual({ cx: 0.12, cy: 0.12 });
+	});
+
+	it("emits a zoomed key region starting at atMs (no travel), and none for a key without zoom", () => {
+		const { fragment } = emitZoomRegions([zoomedKey, plainKey], VIEWPORT);
+		expect(fragment.zoomRegions).toHaveLength(1);
+		const [region] = fragment.zoomRegions;
+		expect(region?.id).toBe("zoom-1");
+		expect(region?.startMs).toBe(6000);
+		expect(region?.endMs).toBe(6000 + 200 + SETTLE_PACING.resultHoldMs);
+		expect(region?.connect).toBe(false);
+	});
+
+	it("keeps the minimum gap after a non-connected region for native entries too", () => {
+		const earlyKey = { ...zoomedKey, atMs: 1600 } as ActionLogEntry;
+		const { fragment } = emitZoomRegions([hover, earlyKey], VIEWPORT);
+		const [first, second] = fragment.zoomRegions;
+		expect(first?.connect).toBe(false);
+		expect(second?.startMs).toBe(
+			(first?.endMs ?? 0) + SETTLE_PACING.zoomOutMs + SETTLE_PACING.zoomMinGapAfterOutMs,
+		);
+	});
+});

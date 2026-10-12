@@ -12,7 +12,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DemoError, type DriveHooks, runDemo } from "../src/commands/demo.js";
+import {
+	chooseCapture,
+	DemoError,
+	type DriveHooks,
+	type NativeDemoDeps,
+	OLD_ENGINE_REGION_MESSAGE,
+	runDemo,
+} from "../src/commands/demo.js";
 import { DriveError, type NarrationTimings } from "../src/commands/drive.js";
 import type { ActionLogEntry } from "../src/lib/actionLog.js";
 
@@ -1060,5 +1067,449 @@ describe("runDemo: narrate stage (CR-LENSMITH-A008-5)", () => {
 		expect(result.artifacts.find((a) => a.name === "rendered-video")?.path).toBe(
 			path.join(outDir, "final.mp4"),
 		);
+	});
+});
+
+/* ------------------------------------------------------------------------------------------ */
+/* CR-LENSMITH-A010-8: native lists — capture choice, preflight, pre-roll, native zoom.      */
+/* Fakes only: no app is launched, no screen is driven, nothing is recorded.                  */
+/* ------------------------------------------------------------------------------------------ */
+
+const DISPLAY = { x: 0, y: 0, width: 3200, height: 1800 };
+const WINDOW = { id: 77, ownerPid: 501, x: 0, y: 25, width: 1600, height: 900 };
+const LAUNCHER = "com.example.launcher";
+const MONITOR = "com.example.monitor";
+
+describe("chooseCapture (design note §6)", () => {
+	const click = { type: "click", app: LAUNCHER, ax: { role: "AXButton" } } as const;
+	const rows: Array<{
+		name: string;
+		list: Record<string, unknown>;
+		window: typeof WINDOW | null;
+		mode: "window" | "region" | "screen";
+		source: string | undefined;
+		warns?: boolean;
+	}> = [
+		{
+			name: "a declared region records that rectangle",
+			list: { capture: { region: { x: 800, y: 150, width: 1600, height: 900 } } },
+			window: WINDOW,
+			mode: "region",
+			source: "region:800,150,1600,900",
+		},
+		{
+			name: '"window" with a window found records the window',
+			list: { capture: "window" },
+			window: WINDOW,
+			mode: "window",
+			source: "window:77",
+		},
+		{
+			name: '"window" with no window falls back to the screen with a warning',
+			list: { capture: "window" },
+			window: null,
+			mode: "screen",
+			source: undefined,
+			warns: true,
+		},
+		{
+			name: '"window" with a url falls back to the screen with a warning',
+			list: { capture: "window", url: "http://localhost:4173/x.html" },
+			window: WINDOW,
+			mode: "screen",
+			source: undefined,
+			warns: true,
+		},
+		{
+			name: '"auto" with one app and a window records the window',
+			list: {},
+			window: WINDOW,
+			mode: "window",
+			source: "window:77",
+		},
+		{
+			name: '"auto" with two apps records the screen',
+			list: { apps: [{ bundleId: LAUNCHER }, { bundleId: MONITOR }] },
+			window: WINDOW,
+			mode: "screen",
+			source: undefined,
+		},
+		{
+			name: '"auto" with an activate step records the screen',
+			list: { steps: [click, { type: "activate", app: LAUNCHER }] },
+			window: WINDOW,
+			mode: "screen",
+			source: undefined,
+		},
+		{
+			name: '"auto" with a statusbar locator records the screen',
+			list: {
+				steps: [{ type: "hover", app: LAUNCHER, ax: { in: "statusbar", role: "AXMenuBarItem" } }],
+			},
+			window: WINDOW,
+			mode: "screen",
+			source: undefined,
+		},
+		{
+			name: '"auto" with a menubar locator records the screen',
+			list: { steps: [{ type: "click", app: LAUNCHER, ax: { in: "menubar", title: "File" } }] },
+			window: WINDOW,
+			mode: "screen",
+			source: undefined,
+		},
+		{
+			name: '"auto" with no window found records the screen',
+			list: {},
+			window: null,
+			mode: "screen",
+			source: undefined,
+		},
+		{
+			name: '"screen" records the screen',
+			list: { capture: "screen" },
+			window: WINDOW,
+			mode: "screen",
+			source: undefined,
+		},
+	];
+	for (const row of rows) {
+		it(row.name, () => {
+			const list = { apps: [{ bundleId: LAUNCHER }], steps: [click], ...row.list };
+			// biome-ignore lint/suspicious/noExplicitAny: table rows are partial step lists
+			const choice = chooseCapture(list as any, { window: row.window, display: DISPLAY });
+			expect(choice.mode).toBe(row.mode);
+			expect(choice.source).toBe(row.source);
+			expect(choice.warning !== undefined).toBe(row.warns === true);
+			if (row.mode === "screen") expect(choice.capture).toEqual(DISPLAY);
+		});
+	}
+});
+
+const NATIVE_ACTION_LOG: ActionLogEntry[] = [
+	{
+		index: 0,
+		type: "key",
+		app: LAUNCHER,
+		keys: ["opt+space"],
+		atMs: 100,
+		settleMs: 100,
+		settleReason: "quiet",
+		boundingBox: { x: 100, y: 100, width: 200, height: 40 },
+	},
+	{
+		index: 1,
+		type: "type",
+		app: LAUNCHER,
+		selector: "ax:AXTextField",
+		startedAtMs: 4000,
+		endedAtMs: 4600,
+		screenX: 0,
+		screenY: 0,
+		boundingBox: { x: 1300, y: 700, width: 200, height: 40 },
+		characterCount: 17,
+		settleMs: 100,
+	},
+	{
+		index: 2,
+		type: "key",
+		app: LAUNCHER,
+		keys: ["return"],
+		atMs: 8000,
+		settleMs: 100,
+		settleReason: "quiet",
+	},
+	{ index: 3, type: "activate", app: MONITOR, atMs: 8300 },
+	{
+		index: 4,
+		type: "hover",
+		app: MONITOR,
+		selector: "ax:AXRow",
+		ax: { role: "AXRow" },
+		startedAtMs: 9000,
+		hoveredAtMs: 9800,
+		screenX: 0,
+		screenY: 0,
+		boundingBox: { x: 100, y: 700, width: 300, height: 30 },
+		settleMs: 100,
+		settleReason: "quiet",
+	},
+	{
+		index: 5,
+		type: "click",
+		app: MONITOR,
+		selector: "ax:AXButton",
+		startedAtMs: 13000,
+		clickedAtMs: 13600,
+		screenX: 0,
+		screenY: 0,
+		boundingBox: { x: 1300, y: 100, width: 80, height: 30 },
+		settleMs: 100,
+	},
+];
+
+interface NativeFakes {
+	deps: NativeDemoDeps;
+	events: string[];
+	driveArgs: Array<Record<string, unknown>>;
+}
+
+function nativeFakes(overrides: Partial<NativeDemoDeps> = {}): NativeFakes {
+	const events: string[] = [];
+	const driveArgs: Array<Record<string, unknown>> = [];
+	let nextPid = 500;
+	const deps: NativeDemoDeps = {
+		resolveNativeDriverPath: () => "/fake/bin/lensmith-native-driver",
+		trust: async () => ({ accessibility: true, secureInput: false }),
+		checkScreenCapture: () => "screen capture available",
+		createDriver: () =>
+			({
+				start: async () => {
+					events.push("driver.start");
+				},
+				prepare: async (pid: number, frame?: unknown) => {
+					events.push(`prepare ${pid} ${JSON.stringify(frame ?? null)}`);
+					return null;
+				},
+				stop: () => {
+					events.push("driver.stop");
+				},
+			}) as unknown as ReturnType<NonNullable<NativeDemoDeps["createDriver"]>>,
+		launchApp: async (bundleId) => {
+			nextPid += 1;
+			events.push(`launch ${bundleId} -> ${nextPid}`);
+			return nextPid;
+		},
+		activate: async (pid) => {
+			events.push(`activate ${pid}`);
+		},
+		listWindows: async () => [{ ...WINDOW, ownerPid: 501 }],
+		mainDisplayBounds: async () => DISPLAY,
+		createChoreographer: () => ({
+			start: async () => {
+				events.push("choreographer.start");
+			},
+			stop: () => {
+				events.push("choreographer.stop");
+			},
+			moveTo: async () => ({ requested: { x: 0, y: 0 }, achieved: { x: 0, y: 0 } }),
+			dwell: async () => undefined,
+			click: async () => ({ x: 0, y: 0 }),
+		}),
+		sleep: async () => undefined,
+		log: () => undefined,
+		drive: (async (_list: unknown, driveDeps: Record<string, unknown>) => {
+			events.push("drive");
+			driveArgs.push(driveDeps);
+			return { actionLog: NATIVE_ACTION_LOG, viewport: { width: 1600, height: 900 } };
+			// biome-ignore lint/suspicious/noExplicitAny: fake runDrive
+		}) as any,
+		...overrides,
+	};
+	return { deps, events, driveArgs };
+}
+
+describe("runDemo — native lists (CR-LENSMITH-A010-8)", () => {
+	let outDir: string;
+	let stepsDir: string;
+
+	const writeSteps = (list: Record<string, unknown>): string => {
+		const p = path.join(stepsDir, "native.json");
+		writeFileSync(p, JSON.stringify(list));
+		return p;
+	};
+
+	const regionList = {
+		apps: [{ bundleId: LAUNCHER }, { bundleId: MONITOR }],
+		capture: { region: { x: 800, y: 150, width: 1600, height: 900 } },
+		steps: [
+			{ type: "key", app: LAUNCHER, keys: "opt+space", zoom: { role: "AXTextField" } },
+			{ type: "type", app: LAUNCHER, text: "clipboard history" },
+			{ type: "key", app: LAUNCHER, keys: "return" },
+			{ type: "activate", app: MONITOR },
+			{ type: "hover", app: MONITOR, ax: { role: "AXRow" } },
+			{ type: "click", app: MONITOR, ax: { role: "AXButton" } },
+		],
+	};
+
+	beforeEach(() => {
+		outDir = mkdtempSync(path.join(tmpdir(), "lensmith-director-demo-native-out-"));
+		stepsDir = mkdtempSync(path.join(tmpdir(), "lensmith-director-demo-native-steps-"));
+	});
+
+	afterEach(() => {
+		rmSync(outDir, { recursive: true, force: true });
+		rmSync(stepsDir, { recursive: true, force: true });
+	});
+
+	const baseDeps = (spawnFn: unknown) => ({
+		// biome-ignore lint/suspicious/noExplicitAny: FakeChild spawn
+		spawnFn: spawnFn as any,
+		nodeBinPath: "node",
+		resolveEngineBinaryPath: () => "/fake/lensmith/dist/cli.js",
+		probeDurationMs: () => null,
+		readyTimeoutMs: 2000,
+		stopTimeoutMs: 2000,
+	});
+
+	it("acceptance: preflight, apps launched and framed in order, --source region, one zoom per click/type/hover/zoomed key", async () => {
+		const { spawnFn, calls } = buildSpawnFn(happyPathHandlers());
+		const fakes = nativeFakes();
+		await runDemo(
+			{ stepsPath: writeSteps(regionList), outDir },
+			{ ...baseDeps(spawnFn), native: fakes.deps },
+		);
+
+		expect(fakes.events.slice(0, 6)).toEqual([
+			"driver.start",
+			`launch ${LAUNCHER} -> 501`,
+			'prepare 501 {"width":1600,"height":900,"x":0,"y":25}',
+			`launch ${MONITOR} -> 502`,
+			"prepare 502 null",
+			"activate 501",
+		]);
+		expect(fakes.events.indexOf("drive")).toBeGreaterThan(fakes.events.indexOf("activate 501"));
+		expect(fakes.events.slice(-2)).toEqual(["choreographer.stop", "driver.stop"]);
+
+		const record = calls.find((c) => c.subcommand === "record");
+		expect(argAfter(record?.args ?? [], "--source")).toBe("region:800,150,1600,900");
+
+		const native = fakes.driveArgs[0]?.native as { capture: unknown; pids: Map<string, number> };
+		expect(native.capture).toEqual({ x: 800, y: 150, width: 1600, height: 900 });
+		expect([...native.pids.entries()]).toEqual([
+			[LAUNCHER, 501],
+			[MONITOR, 502],
+		]);
+
+		const compose = calls.find((c) => c.subcommand === "compose");
+		const fragment = JSON.parse(readFileSync(argAfter(compose?.args ?? [], "--zooms"), "utf-8"));
+		expect(fragment.zoomRegions.map((r: { id: string }) => r.id)).toEqual([
+			"zoom-0",
+			"zoom-1",
+			"zoom-4",
+			"zoom-5",
+		]);
+	});
+
+	it("QA: Accessibility not granted stops at preflight with the fix — no app launched, no recorder spawned", async () => {
+		const { spawnFn, calls } = buildSpawnFn(happyPathHandlers());
+		const fakes = nativeFakes({
+			trust: async () => ({ accessibility: false, secureInput: false }),
+		});
+		const error = await runDemo(
+			{ stepsPath: writeSteps(regionList), outDir },
+			{ ...baseDeps(spawnFn), native: fakes.deps },
+		).catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(DemoError);
+		expect((error as DemoError).stage).toBe("preflight");
+		expect((error as DemoError).message).toMatch(/accessibility_permission/);
+		expect((error as DemoError).message).toMatch(/Privacy & Security > Accessibility/);
+		expect(fakes.events.some((e) => e.startsWith("launch"))).toBe(false);
+		expect(calls).toHaveLength(0);
+	});
+
+	it("preflight refusal order: helper, then accessibility, then screen recording; secure input only warns", async () => {
+		const { spawnFn } = buildSpawnFn(happyPathHandlers());
+		const fakes = nativeFakes({
+			resolveNativeDriverPath: () => {
+				throw new Error("helper not built");
+			},
+			checkScreenCapture: () => {
+				throw new Error("no screen recording");
+			},
+		});
+		const error = (await runDemo(
+			{ stepsPath: writeSteps(regionList), outDir },
+			{ ...baseDeps(spawnFn), native: fakes.deps },
+		).catch((e: unknown) => e)) as DemoError;
+		expect(error.stage).toBe("preflight");
+		const ids = [...error.message.matchAll(/(\w+_\w+(?:_\w+)?): /g)].map((m) => m[1]);
+		expect(ids).toEqual([
+			"native_helper_built",
+			"accessibility_permission",
+			"screen_recording_capability",
+		]);
+
+		const { spawnFn: okSpawn } = buildSpawnFn(happyPathHandlers());
+		const secure = nativeFakes({ trust: async () => ({ accessibility: true, secureInput: true }) });
+		await expect(
+			runDemo(
+				{ stepsPath: writeSteps(regionList), outDir },
+				{ ...baseDeps(okSpawn), native: secure.deps },
+			),
+		).resolves.toBeDefined();
+	});
+
+	it("names the old engine when it refuses region capture", async () => {
+		const { spawnFn } = buildSpawnFn({
+			record: (child) => {
+				child.stderr.write(
+					'Invalid --source "region:800,150,1600,900". Expected "screen" or "window:<numeric-window-id>".\n',
+				);
+				child.emitExit(2);
+			},
+		});
+		const fakes = nativeFakes();
+		const error = (await runDemo(
+			{ stepsPath: writeSteps(regionList), outDir },
+			{ ...baseDeps(spawnFn), native: fakes.deps },
+		).catch((e: unknown) => e)) as DemoError;
+		expect(error).toBeInstanceOf(DemoError);
+		expect(error.stage).toBe("record");
+		expect(error.message).toBe(OLD_ENGINE_REGION_MESSAGE);
+	});
+
+	it("QA: one app with auto capture records window:<id>; a statusbar locator falls back to the screen", async () => {
+		const oneApp = {
+			apps: [{ bundleId: LAUNCHER }],
+			steps: [{ type: "click", app: LAUNCHER, ax: { role: "AXButton" } }],
+		};
+		const first = buildSpawnFn(happyPathHandlers());
+		await runDemo(
+			{ stepsPath: writeSteps(oneApp), outDir },
+			{ ...baseDeps(first.spawnFn), native: nativeFakes().deps },
+		);
+		const record = first.calls.find((c) => c.subcommand === "record");
+		expect(argAfter(record?.args ?? [], "--source")).toBe("window:77");
+
+		const withBar = {
+			...oneApp,
+			steps: [
+				...oneApp.steps,
+				{ type: "hover", app: LAUNCHER, ax: { in: "statusbar", role: "AXMenuBarItem" } },
+			],
+		};
+		const second = buildSpawnFn(happyPathHandlers());
+		const fakes = nativeFakes();
+		await runDemo(
+			{ stepsPath: writeSteps(withBar), outDir },
+			{ ...baseDeps(second.spawnFn), native: fakes.deps },
+		);
+		const record2 = second.calls.find((c) => c.subcommand === "record");
+		expect(record2?.args).not.toContain("--source");
+		const native = fakes.driveArgs[0]?.native as { capture: unknown };
+		expect(native.capture).toEqual(DISPLAY);
+	});
+
+	it("a web-only list never runs the native preflight", async () => {
+		const webSteps = writeSteps({
+			url: "http://localhost:4173/drive-test-page.html",
+			steps: [{ type: "click", selector: "#btn-one" }],
+		});
+		const { spawnFn } = buildSpawnFn(happyPathHandlers());
+		let asked = false;
+		await runDemo(
+			{ stepsPath: webSteps, outDir },
+			{
+				...baseDeps(spawnFn),
+				performDrive: fakePerformDrive(),
+				native: {
+					resolveNativeDriverPath: () => {
+						asked = true;
+						throw new Error("must not be called");
+					},
+				},
+			},
+		);
+		expect(asked).toBe(false);
 	});
 });

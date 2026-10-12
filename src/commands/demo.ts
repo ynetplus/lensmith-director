@@ -45,18 +45,43 @@
  * `try` begins, can reopen it.
  */
 
-import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, execFile as execFileCb, spawn, spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Command } from "commander";
 import type { ActionLogEntry } from "../lib/actionLog.js";
+import { CursorChoreographer } from "../lib/cursorChoreographer.js";
 import { resolveEngineBinaryPath as resolveRealEngineBinaryPath } from "../lib/engineBinary.js";
-import { readStepList, type StepList } from "../lib/stepList.js";
+import {
+	launchApp as launchRealApp,
+	NativeDriver,
+	type NativeDriverLike,
+	type NativeFrame,
+} from "../lib/nativeDriver.js";
+import { resolveNativeDriverPath as resolveRealNativeDriverPath } from "../lib/nativeHelpers.js";
+import type { CaptureRegion } from "../lib/nativeSteps.js";
+import { checkScreenCaptureCapability } from "../lib/screenCapturePreflight.js";
+import {
+	type AxLocator,
+	type DriveStepList,
+	isNativeStep,
+	readDriveStepList,
+	type StepList,
+	stepListWarnings,
+} from "../lib/stepList.js";
 import { emitZoomRegions, logMsToFilmMs } from "../lib/zoomEmission.js";
 import {
+	type ActivateProcess,
 	acquirePage,
+	activateProcessMac,
+	type ChoreographerLike,
+	type ChromeWindowInfo,
 	DEFAULT_BROWSER_CHANNEL,
+	DRIVEN_WINDOW,
 	defaultProfileDir,
+	discoverDrivenWindowId,
+	type ListChromeWindows,
+	listChromeWindowsMac,
 	type NarrationTimings,
 	narrationLineId,
 	type RunDriveResult,
@@ -68,6 +93,7 @@ import {
 export type DemoStage =
 	| "engine"
 	| "steps"
+	| "preflight"
 	| "narrate"
 	| "record"
 	| "drive"
@@ -150,11 +176,18 @@ function buildOutputPaths(outDir: string): DemoPaths {
 const RECORD_READY_MARKER = "Recording ready.";
 const RECORD_READY_TIMEOUT_MS = 15_000;
 const RECORD_STOP_TIMEOUT_MS = 30_000;
+const STDERR_KEEP_CHARS = 4_096;
+/** The engine's refusal of a `--source` it cannot parse (`recordingRequest.ts`). */
+const ENGINE_INVALID_SOURCE = "Invalid --source";
+export const OLD_ENGINE_REGION_MESSAGE =
+	"this lensmith engine predates region capture; update lensmith";
 
 export interface SpawnedRecorder {
 	child: ChildProcess;
 	/** Resolves once the recorder's own ready line has been seen on its stdout. */
 	ready: Promise<void>;
+	/** CR-LENSMITH-A010-8: the recorder's stderr so far (bounded), to recognise an old engine's refusal. */
+	stderrText: () => string;
 }
 
 /**
@@ -172,7 +205,10 @@ export function spawnRecorder(
 	engineBinPath: string,
 	outPath: string,
 	readyTimeoutMs: number,
-	/** BF-15: `window:<id>` records only the driven Chrome window; omitted records the whole screen. */
+	/**
+	 * BF-15: `window:<id>` records only the driven Chrome window; omitted records the whole screen.
+	 * CR-LENSMITH-A010-8: `region:x,y,w,h` records a screen rectangle (engines that support it).
+	 */
 	source?: string,
 ): SpawnedRecorder {
 	const recordArgs = [engineBinPath, "record", "--out", outPath];
@@ -181,6 +217,7 @@ export function spawnRecorder(
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 
+	let stderr = "";
 	const ready = new Promise<void>((resolve, reject) => {
 		let settled = false;
 		const timer = setTimeout(() => {
@@ -197,7 +234,10 @@ export function spawnRecorder(
 				resolve();
 			}
 		});
-		child.stderr?.on("data", (chunk: Buffer) => process.stderr.write(chunk));
+		child.stderr?.on("data", (chunk: Buffer) => {
+			process.stderr.write(chunk);
+			stderr = (stderr + chunk.toString("utf-8")).slice(-STDERR_KEEP_CHARS);
+		});
 		child.once("error", (error) => {
 			if (settled) return;
 			settled = true;
@@ -212,7 +252,25 @@ export function spawnRecorder(
 		});
 	});
 
-	return { child, ready };
+	return { child, ready, stderrText: () => stderr };
+}
+
+/**
+ * CR-LENSMITH-A010-8: true when the recorder's stderr carries the engine's "Invalid --source"
+ * refusal — an engine older than region capture. stderr can trail the exit event, so this waits
+ * briefly (bounded) for the stream to close before reading it.
+ */
+async function recorderRefusedSource(recorder: SpawnedRecorder): Promise<boolean> {
+	if (!recorder.stderrText().includes(ENGINE_INVALID_SOURCE)) {
+		await new Promise<void>((resolve) => {
+			const timer = setTimeout(resolve, 250);
+			recorder.child.once("close", () => {
+				clearTimeout(timer);
+				resolve();
+			});
+		});
+	}
+	return recorder.stderrText().includes(ENGINE_INVALID_SOURCE);
 }
 
 /**
@@ -288,27 +346,437 @@ async function defaultPerformDrive(
 	options: { profileDir: string; browserChannel: string },
 	hooks: DriveHooks,
 	narration: NarrationTimings | undefined,
+	nativeDeps?: NativeDemoDeps,
 ): Promise<RunDriveResult> {
-	return withLaunchedChrome(
-		{ ...options, discoverWindow: true, activate: true },
-		async (ctx, choreographer, windowId) => {
-			const page = await acquirePage(ctx);
-			// BF-15: the window exists now, so the recorder can start on it — before any step runs.
-			await hooks.onWindowReady(windowId);
-			try {
-				await choreographer.start();
-				return await runDrive(
-					stepList,
-					narration === undefined ? { page, choreographer } : { page, choreographer, narration },
-				);
-			} finally {
-				choreographer.stop();
-				// BF-16: stop the recorder while the window still exists — a window-source stream
-				// dies when Chrome closes, and `withLaunchedChrome` closes it as soon as this returns.
-				await hooks.onDriveFinished?.();
-			}
-		},
+	const list = stepList as DriveStepList;
+	// CR-LENSMITH-A010-8: a web list with native steps also pre-rolls its apps and records the
+	// capture `chooseCapture` picks; a web-only list takes exactly the path it always did.
+	const withNative = nativeDeps !== undefined && hasNativeSteps(list);
+	const driver = withNative ? (nativeDeps.createDriver ?? (() => new NativeDriver()))() : undefined;
+	try {
+		return await withLaunchedChrome(
+			{ ...options, discoverWindow: !withNative, activate: true },
+			async (ctx, choreographer, windowId) => {
+				const page = await acquirePage(ctx);
+				let native: Parameters<typeof runDrive>[1]["native"];
+				if (withNative && driver) {
+					await driver.start?.();
+					const activate = nativeDeps.activate ?? activateProcessMac;
+					const roll = await preRollApps(list, driver, {
+						launchApp: nativeDeps.launchApp ?? ((b) => launchRealApp(b)),
+						activate,
+					});
+					const display = await (nativeDeps.mainDisplayBounds ?? mainDisplayBoundsMac)();
+					const choice = chooseCapture(list, { window: null, display });
+					if (choice.warning !== undefined) console.error(`demo: warning: ${choice.warning}`);
+					native = { driver, pids: roll.pids, capture: choice.capture, activate };
+					await hooks.onWindowReady({ source: choice.source });
+				} else {
+					// BF-15: the window exists now, so the recorder can start on it — before any step runs.
+					await hooks.onWindowReady(windowId);
+				}
+				try {
+					await choreographer.start();
+					const result = await runDrive(stepList, {
+						page,
+						choreographer,
+						...(native !== undefined ? { native } : {}),
+						...(narration !== undefined ? { narration } : {}),
+					});
+					// Boxes are in capture space when native: the zoom frame is the capture.
+					return native?.capture === undefined
+						? result
+						: {
+								...result,
+								viewport: { width: native.capture.width, height: native.capture.height },
+							};
+				} finally {
+					choreographer.stop();
+					// BF-16: stop the recorder while the window still exists — a window-source stream
+					// dies when Chrome closes, and `withLaunchedChrome` closes it as soon as this returns.
+					await hooks.onDriveFinished?.();
+				}
+			},
+		);
+	} finally {
+		driver?.stop();
+	}
+}
+
+/* -------------------------------------------------------------------------------------------- */
+/* CR-LENSMITH-A010-8: native lists — readiness, pre-roll, capture choice, native drive.        */
+/* Design note §2 (pre-roll), §6 (capture), §7 (preflight rows). Web-only lists never reach it. */
+/* -------------------------------------------------------------------------------------------- */
+
+/** One readiness row, in the engine `doctor` report shape. */
+export interface NativeReadinessCheck {
+	id:
+		| "native_helper_built"
+		| "accessibility_permission"
+		| "screen_recording_capability"
+		| "secure_input_off";
+	required: boolean;
+	ok: boolean;
+	code: string;
+	detail: string;
+	fix: string | null;
+}
+
+export interface NativeReadiness {
+	ok: boolean;
+	checks: NativeReadinessCheck[];
+}
+
+export interface NativeReadinessDeps {
+	resolveNativeDriverPath?: () => string;
+	/** The helper's `trust` answer. Called only when the helper is built. */
+	trust?: () => Promise<{ accessibility: boolean; secureInput: boolean }>;
+	checkScreenCapture?: () => string;
+}
+
+/**
+ * The four readiness rows a native list needs (design note §7): the helper, Accessibility,
+ * Screen Recording (required) and Secure Input (warn only). Never throws: each row reports.
+ */
+export async function checkNativeReadiness(
+	deps: NativeReadinessDeps = {},
+): Promise<NativeReadiness> {
+	const resolveHelper = deps.resolveNativeDriverPath ?? (() => resolveRealNativeDriverPath());
+	const checkCapture = deps.checkScreenCapture ?? (() => checkScreenCaptureCapability());
+	const checks: NativeReadinessCheck[] = [];
+
+	let helperPath: string | undefined;
+	try {
+		helperPath = resolveHelper();
+		checks.push({
+			id: "native_helper_built",
+			required: true,
+			ok: true,
+			code: "ok",
+			detail: helperPath,
+			fix: null,
+		});
+	} catch (error) {
+		checks.push({
+			id: "native_helper_built",
+			required: true,
+			ok: false,
+			code: "helper_missing",
+			detail: messageOf(error),
+			fix: "Build the native helpers: npm run build:native",
+		});
+	}
+
+	let trust: { accessibility: boolean; secureInput: boolean } | undefined;
+	let trustError: string | undefined;
+	if (helperPath !== undefined) {
+		try {
+			const ask =
+				deps.trust ??
+				(async () => {
+					const driver = new NativeDriver({ helperPath });
+					try {
+						await driver.start();
+						return await driver.trust();
+					} finally {
+						driver.stop();
+					}
+				});
+			trust = await ask();
+		} catch (error) {
+			trustError = messageOf(error);
+		}
+	} else {
+		trustError = "the native helper is not built, so trust could not be asked";
+	}
+
+	const accessibilityFix =
+		"System Settings > Privacy & Security > Accessibility: allow the app that runs this " +
+		"command (Terminal), then run it again";
+	checks.push(
+		trust === undefined
+			? {
+					id: "accessibility_permission",
+					required: true,
+					ok: false,
+					code: "unknown",
+					detail: trustError ?? "trust unavailable",
+					fix: accessibilityFix,
+				}
+			: {
+					id: "accessibility_permission",
+					required: true,
+					ok: trust.accessibility,
+					code: trust.accessibility ? "ok" : "not_granted",
+					detail: trust.accessibility
+						? "Accessibility is granted"
+						: "Accessibility is not granted to the responsible app",
+					fix: trust.accessibility ? null : accessibilityFix,
+				},
 	);
+
+	try {
+		const detail = checkCapture();
+		checks.push({
+			id: "screen_recording_capability",
+			required: true,
+			ok: true,
+			code: "ok",
+			detail: detail || "screen capture is available",
+			fix: null,
+		});
+	} catch (error) {
+		checks.push({
+			id: "screen_recording_capability",
+			required: true,
+			ok: false,
+			code: "not_available",
+			detail: messageOf(error),
+			fix:
+				"System Settings > Privacy & Security > Screen Recording: allow the app that runs " +
+				"this command (Terminal), then run it again",
+		});
+	}
+
+	const secureInputOn = trust?.secureInput === true;
+	checks.push({
+		id: "secure_input_off",
+		required: false,
+		ok: trust !== undefined && !secureInputOn,
+		code: trust === undefined ? "unknown" : secureInputOn ? "secure_input_on" : "ok",
+		detail:
+			trust === undefined
+				? "could not be checked"
+				: secureInputOn
+					? "Secure Input is on: typed keys may not reach the target app"
+					: "Secure Input is off",
+		fix: secureInputOn ? "Close the password field or app that holds Secure Input" : null,
+	});
+
+	return { ok: checks.every((c) => c.ok || !c.required), checks };
+}
+
+/** What `chooseCapture` decided: the engine `--source` (undefined = whole screen) and the capture rect. */
+export interface CaptureChoice {
+	mode: "window" | "region" | "screen";
+	source?: string;
+	capture: CaptureRegion;
+	/** Set when a declared or preferred choice had to fall back (printed to stderr). */
+	warning?: string;
+}
+
+export interface ChooseCaptureContext {
+	/** The first app's window after pre-roll (id and frame), or null when none was found. */
+	window: ChromeWindowInfo | null;
+	/** The main display's bounds in screen points. */
+	display: CaptureRegion;
+}
+
+function locatorsInStep(step: DriveStepList["steps"][number]): AxLocator[] {
+	const s = step as { ax?: AxLocator; expect?: AxLocator; zoom?: AxLocator; until?: AxLocator };
+	return [s.ax, s.expect, s.zoom, s.until].filter((l): l is AxLocator => l !== undefined);
+}
+
+/**
+ * Picks the capture for a native list (design note §6). Pure. A declared region wins; `window`
+ * (or `auto` with one app, no `activate` step, no menu bar or status bar locator, and a window
+ * found) records that window; everything else records the main display. A list with a `url`
+ * never records a window: the browser and the native app share the frame, so a window choice
+ * falls back to the screen.
+ */
+export function chooseCapture(list: DriveStepList, ctx: ChooseCaptureContext): CaptureChoice {
+	const declared = list.capture ?? "auto";
+	const screen = (warning?: string): CaptureChoice => ({
+		mode: "screen",
+		capture: { ...ctx.display },
+		...(warning !== undefined ? { warning } : {}),
+	});
+
+	if (typeof declared === "object") {
+		const r = declared.region;
+		return {
+			mode: "region",
+			source: `region:${r.x},${r.y},${r.width},${r.height}`,
+			capture: { x: r.x, y: r.y, width: r.width, height: r.height },
+		};
+	}
+	if (declared === "screen") return screen();
+
+	const webAndNative = list.url !== undefined;
+	if (declared === "window") {
+		if (webAndNative) {
+			return screen(
+				'capture "window" is not possible with a "url" (the browser and the app share the frame) — recording the screen',
+			);
+		}
+		if (ctx.window === null) {
+			return screen('capture "window": no window was found for the app — recording the screen');
+		}
+		return windowChoice(ctx.window);
+	}
+
+	// auto
+	const oneApp = (list.apps?.length ?? 0) === 1;
+	const hasActivate = list.steps.some((s) => s.type === "activate" && isNativeStep(s));
+	const hasBarLocator = list.steps.some((s) =>
+		locatorsInStep(s).some((l) => l.in === "menubar" || l.in === "statusbar"),
+	);
+	if (!webAndNative && oneApp && !hasActivate && !hasBarLocator && ctx.window !== null) {
+		return windowChoice(ctx.window);
+	}
+	return screen();
+}
+
+function windowChoice(w: ChromeWindowInfo): CaptureChoice {
+	return {
+		mode: "window",
+		source: `window:${w.id}`,
+		capture: { x: w.x, y: w.y, width: w.width, height: w.height },
+	};
+}
+
+const MAIN_DISPLAY_JXA = `ObjC.import('AppKit');
+const f = $.NSScreen.mainScreen.frame;
+JSON.stringify({ x: 0, y: 0, width: f.size.width, height: f.size.height })`;
+
+/** The main display's bounds in points (macOS, through the JXA AppKit bridge). */
+export function mainDisplayBoundsMac(): Promise<CaptureRegion> {
+	return new Promise((resolve, reject) => {
+		execFileCb(
+			"osascript",
+			["-l", "JavaScript", "-e", MAIN_DISPLAY_JXA],
+			{ timeout: 10_000 },
+			(error, stdout) => {
+				if (error) {
+					reject(error);
+					return;
+				}
+				try {
+					resolve(JSON.parse(String(stdout).trim()) as CaptureRegion);
+				} catch (parseError) {
+					reject(parseError);
+				}
+			},
+		);
+	});
+}
+
+/** Everything the native path touches outside this process — all injectable, so tests use fakes. */
+export interface NativeDemoDeps extends NativeReadinessDeps {
+	createDriver?: () => NativeDriverLike & { start?: () => Promise<void> };
+	launchApp?: (bundleId: string) => Promise<number>;
+	activate?: ActivateProcess;
+	listWindows?: ListChromeWindows;
+	mainDisplayBounds?: () => Promise<CaptureRegion>;
+	createChoreographer?: () => ChoreographerLike;
+	sleep?: (ms: number) => Promise<void>;
+	/** Injectable for tests only — production runs the real `runDrive`. */
+	drive?: typeof runDrive;
+	log?: (line: string) => void;
+}
+
+/** True when the list has at least one native step (a step that names an `app`). */
+export function hasNativeSteps(list: DriveStepList): boolean {
+	return list.steps.some(isNativeStep);
+}
+
+export interface PreRollResult {
+	pids: Map<string, number>;
+	firstPid: number | undefined;
+	firstFrame: NativeFrame | null;
+}
+
+/**
+ * Pre-roll (design note §2), before the recorder starts: launch each app, `prepare` it (the
+ * first app's frame defaults to `DRIVEN_WINDOW`), then bring the first app to the front.
+ */
+export async function preRollApps(
+	list: DriveStepList,
+	driver: NativeDriverLike,
+	deps: { launchApp: (bundleId: string) => Promise<number>; activate: ActivateProcess },
+): Promise<PreRollResult> {
+	const pids = new Map<string, number>();
+	let firstPid: number | undefined;
+	let firstFrame: NativeFrame | null = null;
+	for (const [i, app] of (list.apps ?? []).entries()) {
+		const pid = await deps.launchApp(app.bundleId);
+		pids.set(app.bundleId, pid);
+		if (i === 0) {
+			firstPid = pid;
+			firstFrame = await driver.prepare(pid, app.frame ?? { ...DRIVEN_WINDOW });
+		} else {
+			await driver.prepare(pid, app.frame);
+		}
+	}
+	if (firstPid !== undefined) await deps.activate(firstPid);
+	return { pids, firstPid, firstFrame };
+}
+
+async function findWindowByPid(
+	pid: number,
+	list: ListChromeWindows,
+	sleep: (ms: number) => Promise<void>,
+	log: (line: string) => void,
+): Promise<ChromeWindowInfo | null> {
+	const id = await discoverDrivenWindowId({ pid, list, sleep, log });
+	if (id === null) return null;
+	try {
+		return (await list()).find((w) => w.id === id) ?? null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * The drive stage for a list without a `url`: pre-roll, choose the capture, start the recorder
+ * on it (`hooks.onWindowReady`), then run the native steps with a `NativeDriver` and the
+ * choreographer, and stop both (and the recorder) in `finally`.
+ */
+export async function defaultPerformNativeDrive(
+	stepList: DriveStepList,
+	hooks: DriveHooks,
+	narration: NarrationTimings | undefined,
+	deps: NativeDemoDeps = {},
+): Promise<RunDriveResult> {
+	const log = deps.log ?? ((line: string) => process.stderr.write(`${line}\n`));
+	const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+	const activate = deps.activate ?? activateProcessMac;
+	const drive = deps.drive ?? runDrive;
+	const choreographer = (deps.createChoreographer ?? (() => new CursorChoreographer()))();
+	const driver = (deps.createDriver ?? (() => new NativeDriver()))();
+	try {
+		await driver.start?.();
+		const roll = await preRollApps(stepList, driver, {
+			launchApp: deps.launchApp ?? ((b) => launchRealApp(b)),
+			activate,
+		});
+		const window =
+			roll.firstPid === undefined
+				? null
+				: await findWindowByPid(
+						roll.firstPid,
+						deps.listWindows ?? listChromeWindowsMac,
+						sleep,
+						log,
+					);
+		const display = await (deps.mainDisplayBounds ?? mainDisplayBoundsMac)();
+		const choice = chooseCapture(stepList, { window, display });
+		if (choice.warning !== undefined) log(`demo: warning: ${choice.warning}`);
+		await hooks.onWindowReady({ source: choice.source });
+		try {
+			await choreographer.start();
+			const native = { driver, pids: roll.pids, capture: choice.capture, activate };
+			return await drive(
+				stepList,
+				narration === undefined ? { choreographer, native } : { choreographer, native, narration },
+			);
+		} finally {
+			choreographer.stop();
+			await hooks.onDriveFinished?.();
+		}
+	} finally {
+		driver.stop();
+	}
 }
 
 /** `ffprobe`'s real output on failure/absence is never guessed at — `null` means genuinely unknown. */
@@ -347,9 +815,10 @@ export interface DriveHooks {
 	/**
 	 * Called once, after the driven Chrome window is open and BEFORE the first step. `windowId` is
 	 * the window's CGWindowID, or null when it could not be found (the recorder then falls back to
-	 * the whole screen).
+	 * the whole screen). CR-LENSMITH-A010-8: `{ source }` passes the engine `--source` chosen by
+	 * {@link chooseCapture} (undefined = the whole screen, with no warning).
 	 */
-	onWindowReady(windowId: number | null): Promise<void>;
+	onWindowReady(target: number | null | { source: string | undefined }): Promise<void>;
 	/**
 	 * BF-16: called once the steps are done (or failed) and BEFORE Chrome is closed, so a
 	 * window-source recording is stopped while its window still exists.
@@ -370,6 +839,17 @@ export interface RunDemoDeps {
 		hooks: DriveHooks,
 		narration?: NarrationTimings,
 	) => Promise<RunDriveResult>;
+	/**
+	 * CR-LENSMITH-A010-8: replaces the drive stage for a list without a `url` (native-only).
+	 * Defaults to {@link defaultPerformNativeDrive} with `native`.
+	 */
+	performNativeDrive?: (
+		stepList: DriveStepList,
+		hooks: DriveHooks,
+		narration?: NarrationTimings,
+	) => Promise<RunDriveResult>;
+	/** CR-LENSMITH-A010-8: the native readiness, pre-roll and driver effects (fakes in tests). */
+	native?: NativeDemoDeps;
 	probeDurationMs?: (filePath: string) => number | null;
 	readyTimeoutMs?: number;
 	stopTimeoutMs?: number;
@@ -406,10 +886,15 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 	const resolveEngineBinaryPath = deps.resolveEngineBinaryPath ?? resolveRealEngineBinaryPath;
 	const profileDir = opts.profileDir ?? defaultProfileDir();
 	const browserChannel = opts.browserChannel ?? DEFAULT_BROWSER_CHANNEL;
-	const performDrive =
+	const nativeDeps = deps.native ?? {};
+	const performWebDrive =
 		deps.performDrive ??
 		((stepList: StepList, hooks: DriveHooks, narration?: NarrationTimings) =>
-			defaultPerformDrive(stepList, { profileDir, browserChannel }, hooks, narration));
+			defaultPerformDrive(stepList, { profileDir, browserChannel }, hooks, narration, nativeDeps));
+	const performNativeDrive =
+		deps.performNativeDrive ??
+		((stepList: DriveStepList, hooks: DriveHooks, narration?: NarrationTimings) =>
+			defaultPerformNativeDrive(stepList, hooks, narration, nativeDeps));
 	const probeDurationMs = deps.probeDurationMs ?? defaultProbeDurationMs;
 	const readyTimeoutMs = deps.readyTimeoutMs ?? RECORD_READY_TIMEOUT_MS;
 	const stopTimeoutMs = deps.stopTimeoutMs ?? RECORD_STOP_TIMEOUT_MS;
@@ -425,12 +910,37 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 		throw new DemoError("engine", messageOf(error));
 	}
 
-	let stepList: StepList;
+	let driveList: DriveStepList;
 	try {
 		const raw = readFileSync(opts.stepsPath, "utf-8");
-		stepList = readStepList(raw, opts.stepsPath);
+		driveList = readDriveStepList(raw, opts.stepsPath);
 	} catch (error) {
 		throw new DemoError("steps", messageOf(error));
+	}
+	for (const warning of stepListWarnings(driveList)) console.error(`demo: warning: ${warning}`);
+	const stepList = driveList as StepList;
+	const nativeList = driveList.url === undefined;
+	const performDrive = nativeList
+		? (list: StepList, hooks: DriveHooks, narration?: NarrationTimings) =>
+				performNativeDrive(list as DriveStepList, hooks, narration)
+		: performWebDrive;
+
+	// CR-LENSMITH-A010-8: a list with any native step is checked for readiness before anything
+	// launches or records; a failing required row stops the run here with its fix.
+	if (hasNativeSteps(driveList)) {
+		const readiness = await checkNativeReadiness(nativeDeps);
+		for (const check of readiness.checks) {
+			if (!check.ok && !check.required) {
+				console.error(`demo: warning: ${check.id}: ${check.detail}`);
+			}
+		}
+		if (!readiness.ok) {
+			const failing = readiness.checks.filter((c) => c.required && !c.ok);
+			throw new DemoError(
+				"preflight",
+				failing.map((c) => `${c.id}: ${c.detail}${c.fix ? ` — fix: ${c.fix}` : ""}`).join("; "),
+			);
+		}
 	}
 
 	mkdirSync(opts.outDir, { recursive: true });
@@ -499,16 +1009,18 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 	};
 
 	const hooks: DriveHooks = {
-		async onWindowReady(windowId) {
+		async onWindowReady(target) {
 			currentStage = "record";
 			let source: string | undefined;
-			if (windowId === null) {
+			if (typeof target === "object" && target !== null) {
+				source = target.source;
+			} else if (target === null) {
 				console.error(
 					"demo: warning: could not find the driven Chrome window id — recording the whole " +
 						"screen instead of the window",
 				);
 			} else {
-				source = `window:${windowId}`;
+				source = `window:${target}`;
 			}
 			try {
 				recorder = spawnRecorder(
@@ -525,7 +1037,11 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 			try {
 				await Promise.race([recorder.ready, signal]);
 			} catch (error) {
-				throw error instanceof DemoError ? error : new DemoError("record", messageOf(error));
+				if (error instanceof DemoError) throw error;
+				if (source?.startsWith("region:") && (await recorderRefusedSource(recorder))) {
+					throw new DemoError("record", OLD_ENGINE_REGION_MESSAGE);
+				}
+				throw new DemoError("record", messageOf(error));
 			}
 			currentStage = "drive";
 		},
