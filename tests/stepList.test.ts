@@ -1,5 +1,19 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { readStepList, StepListError, validateStepList } from "../src/lib/stepList.js";
+import {
+	isNativeStep,
+	KEY_NAMES,
+	MODIFIER_NAMES,
+	parseKeys,
+	readDriveStepList,
+	readStepList,
+	StepListError,
+	stepListWarnings,
+	validateDriveStepList,
+	validateStepList,
+} from "../src/lib/stepList.js";
 
 describe("validateStepList", () => {
 	it("accepts a well-formed step list", () => {
@@ -442,5 +456,350 @@ describe("validateStepList: say (CR-LENSMITH-A008-2)", () => {
 				}),
 			).toThrow(/invalid \[\[mark\]\] name/);
 		}
+	});
+});
+
+describe("validateDriveStepList (CR-LENSMITH-A010-2 native steps)", () => {
+	const fixturesDir = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
+	const APPS = [{ bundleId: "com.example.tinycast" }];
+	const nativeList = (step: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+		apps: APPS,
+		steps: [{ type: "activate", app: "com.example.tinycast" }, step],
+		...extra,
+	});
+	const refuses = (list: unknown, ...fragments: string[]) => {
+		let message = "";
+		try {
+			validateDriveStepList(list);
+		} catch (error) {
+			expect(error).toBeInstanceOf(StepListError);
+			message = (error as Error).message;
+		}
+		expect(message, "expected a StepListError").not.toBe("");
+		for (const f of fragments) expect(message).toContain(f);
+	};
+
+	it("accepts the native fixture (the three design-note examples merged)", () => {
+		const raw = readFileSync(join(fixturesDir, "native-steps.json"), "utf8");
+		const list = readDriveStepList(raw, "native-steps.json");
+		expect(list.url).toBeUndefined();
+		expect(list.steps).toHaveLength(14);
+		expect(list.apps).toHaveLength(5);
+		expect(list.capture).toEqual({ region: { x: 800, y: 150, width: 1600, height: 900 } });
+		expect(list.steps.every((s) => isNativeStep(s))).toBe(true);
+		expect(stepListWarnings(list)).toEqual([]);
+	});
+
+	it("every existing web fixture validates identically through both entry points", () => {
+		const files = readdirSync(fixturesDir).filter(
+			(f) => f.endsWith(".json") && f !== "native-steps.json",
+		);
+		expect(files.length).toBeGreaterThan(0);
+		for (const file of files) {
+			const raw = readFileSync(join(fixturesDir, file), "utf8");
+			expect(readDriveStepList(raw, file)).toEqual(readStepList(raw, file));
+		}
+	});
+
+	it("accepts a mixed native + web list with a url", () => {
+		const list = validateDriveStepList({
+			url: "http://localhost:4173/page.html",
+			apps: APPS,
+			steps: [
+				{ type: "click", selector: "#a" },
+				{ type: "activate", app: "com.example.tinycast" },
+				{ type: "wait", ms: 200 },
+			],
+		});
+		expect(list.steps.map((s) => isNativeStep(s))).toEqual([false, true, false]);
+	});
+
+	it("a native-only list without url passes the drive validator but fails validateStepList as today", () => {
+		const list = nativeList({ type: "key", app: "com.example.tinycast", keys: "cmd+shift+v" });
+		expect(validateDriveStepList(list).url).toBeUndefined();
+		expect(() => validateStepList(list)).toThrow(
+			'the step list\'s "url" must be a non-empty string',
+		);
+	});
+
+	it("refuses app + selector together, naming the index", () => {
+		refuses(
+			nativeList({
+				type: "click",
+				app: "com.example.tinycast",
+				selector: "#a",
+				ax: { role: "AXButton" },
+			}),
+			"index 1",
+			'"selector"',
+		);
+	});
+
+	it("refuses hover, key and activate without app, naming the index", () => {
+		for (const type of ["hover", "key", "activate"]) {
+			refuses(
+				nativeList({ type, ax: { role: "AXButton" }, keys: "return" }),
+				"index 1",
+				`"${type}"`,
+				'"app"',
+			);
+		}
+	});
+
+	it("refuses an app that is not a reverse-DNS bundle id", () => {
+		refuses(
+			{ apps: [{ bundleId: "tinycast" }], steps: [{ type: "activate", app: "tinycast" }] },
+			'"bundleId"',
+		);
+		refuses(nativeList({ type: "activate", app: "Tinycast" }), "index 1", '"app"');
+	});
+
+	it("refuses an app that is not listed in top-level apps", () => {
+		refuses(
+			nativeList({ type: "activate", app: "com.example.other" }),
+			"index 1",
+			'"app"',
+			'"apps"',
+		);
+	});
+
+	it("refuses duplicate bundle ids in apps", () => {
+		refuses(
+			{ apps: [...APPS, ...APPS], steps: [{ type: "activate", app: "com.example.tinycast" }] },
+			"index 1",
+			'"bundleId"',
+			"unique",
+		);
+	});
+
+	it("refuses a locator with no locating key", () => {
+		refuses(
+			nativeList({ type: "click", app: "com.example.tinycast", ax: { match: "exact" } }),
+			"index 1",
+			'"ax"',
+			"at least one of",
+		);
+	});
+
+	it("refuses a bad match or in enum", () => {
+		refuses(
+			nativeList({
+				type: "click",
+				app: "com.example.tinycast",
+				ax: { role: "AXButton", match: "fuzzy" },
+			}),
+			"index 1",
+			'"match"',
+		);
+		refuses(
+			nativeList({
+				type: "click",
+				app: "com.example.tinycast",
+				ax: { role: "AXButton", in: "dock" },
+			}),
+			"index 1",
+			'"in"',
+		);
+	});
+
+	it("refuses a negative or fractional index and path item", () => {
+		refuses(
+			nativeList({
+				type: "click",
+				app: "com.example.tinycast",
+				ax: { role: "AXButton", index: -1 },
+			}),
+			"index 1",
+			'"index"',
+		);
+		refuses(
+			nativeList({ type: "click", app: "com.example.tinycast", ax: { path: [0, 1.5] } }),
+			"index 1",
+			'"path"',
+		);
+		refuses(
+			nativeList({ type: "click", app: "com.example.tinycast", ax: { path: [0, -2] } }),
+			"index 1",
+			'"path"',
+		);
+	});
+
+	it("refuses a wait with both ms and app, and an app wait without until or positive timeoutMs", () => {
+		refuses(
+			nativeList({
+				type: "wait",
+				app: "com.example.tinycast",
+				ms: 100,
+				until: { role: "AXList" },
+				timeoutMs: 100,
+			}),
+			"index 1",
+			'"ms"',
+		);
+		refuses(
+			nativeList({ type: "wait", app: "com.example.tinycast", timeoutMs: 100 }),
+			"index 1",
+			'"until"',
+		);
+		refuses(
+			nativeList({ type: "wait", app: "com.example.tinycast", until: { role: "AXList" } }),
+			"index 1",
+			'"timeoutMs"',
+		);
+		refuses(
+			nativeList({
+				type: "wait",
+				app: "com.example.tinycast",
+				until: { role: "AXList" },
+				timeoutMs: 0,
+			}),
+			"index 1",
+			'"timeoutMs"',
+		);
+	});
+
+	it("requires url iff a step has a selector", () => {
+		refuses({ apps: APPS, steps: [{ type: "click", selector: "#a" }] }, '"url"', '"selector"');
+		refuses(
+			{ url: "", apps: APPS, steps: [{ type: "activate", app: "com.example.tinycast" }] },
+			'"url"',
+		);
+	});
+
+	it("refuses a non-16:9 capture region and accepts 1600x900", () => {
+		const region = (width: number, height: number) =>
+			nativeList(
+				{ type: "activate", app: "com.example.tinycast" },
+				{ capture: { region: { x: 0, y: 0, width, height } } },
+			);
+		refuses(region(1600, 1000), '"capture.region"', "16:9");
+		refuses(region(0, 0), '"capture.region"', '"width"');
+		expect(validateDriveStepList(region(1600, 900)).capture).toEqual({
+			region: { x: 0, y: 0, width: 1600, height: 900 },
+		});
+		refuses(
+			nativeList({ type: "activate", app: "com.example.tinycast" }, { capture: "fullscreen" }),
+			'"capture"',
+		);
+	});
+
+	it("reuses the timeoutMs and say validators on native steps", () => {
+		refuses(
+			nativeList({
+				type: "click",
+				app: "com.example.tinycast",
+				ax: { role: "AXButton" },
+				timeoutMs: -5,
+			}),
+			"index 1",
+			'"timeoutMs"',
+		);
+		refuses(
+			nativeList({
+				type: "hover",
+				app: "com.example.tinycast",
+				ax: { role: "AXButton" },
+				say: "[[a]] [[b]]",
+			}),
+			"index 1",
+			'"say"',
+		);
+	});
+
+	it("refuses a key step whose keys is a printable key with no modifier (no free text in keys)", () => {
+		refuses(
+			nativeList({ type: "key", app: "com.example.tinycast", keys: "h" }),
+			"index 1",
+			'"keys"',
+			"printable",
+		);
+		refuses(
+			nativeList({ type: "key", app: "com.example.tinycast", keys: ["shift+a"] }),
+			"index 1",
+			'"keys"',
+			"printable",
+		);
+		refuses(
+			nativeList({ type: "key", app: "com.example.tinycast", keys: "space" }),
+			"index 1",
+			'"keys"',
+			"printable",
+		);
+	});
+
+	it("refuses an unknown key or modifier name", () => {
+		refuses(
+			nativeList({ type: "key", app: "com.example.tinycast", keys: "cmd+enter" }),
+			"index 1",
+			'"keys"',
+			"unknown key",
+		);
+		refuses(
+			nativeList({ type: "key", app: "com.example.tinycast", keys: "super+a" }),
+			"index 1",
+			'"keys"',
+			"unknown modifier",
+		);
+	});
+
+	it("accepts cmd+shift+v and [return, down]", () => {
+		for (const keys of ["cmd+shift+v", ["return", "down"]]) {
+			const list = validateDriveStepList(
+				nativeList({ type: "key", app: "com.example.tinycast", keys }),
+			);
+			expect(list.steps[1]).toEqual({ type: "key", app: "com.example.tinycast", keys });
+		}
+	});
+
+	it("accepts a native type step from the keychain", () => {
+		const step = {
+			type: "type",
+			app: "com.example.tinycast",
+			textFrom: { keychain: { service: "s", account: "a" } },
+		};
+		expect(validateDriveStepList(nativeList(step)).steps[1]).toEqual(step);
+	});
+});
+
+describe("parseKeys", () => {
+	it("parses chords into key + modifiers", () => {
+		expect(parseKeys("cmd+shift+v")).toEqual([{ key: "v", mods: ["cmd", "shift"] }]);
+		expect(parseKeys(["return", "f12"])).toEqual([
+			{ key: "return", mods: [] },
+			{ key: "f12", mods: [] },
+		]);
+	});
+
+	it("exposes the fixed modifier and key sets", () => {
+		expect([...MODIFIER_NAMES]).toEqual(["cmd", "shift", "opt", "ctrl", "fn"]);
+		expect(KEY_NAMES).toContain("grave");
+		expect(KEY_NAMES).toContain("f1");
+		expect(KEY_NAMES).not.toContain("enter");
+	});
+
+	it("refuses printable keys without cmd, ctrl or opt", () => {
+		expect(() => parseKeys("h")).toThrow(StepListError);
+		expect(() => parseKeys("shift+1")).toThrow(StepListError);
+		expect(parseKeys("ctrl+a")).toEqual([{ key: "a", mods: ["ctrl"] }]);
+	});
+});
+
+describe("stepListWarnings", () => {
+	it("warns once per point locator", () => {
+		const list = validateDriveStepList({
+			apps: [{ bundleId: "com.example.tinycast" }],
+			steps: [
+				{
+					type: "click",
+					app: "com.example.tinycast",
+					ax: { point: { x: 10, y: 20 } },
+					expect: { point: { x: 1, y: 2 } },
+				},
+				{ type: "hover", app: "com.example.tinycast", ax: { role: "AXButton" } },
+			],
+		});
+		const warnings = stepListWarnings(list);
+		expect(warnings).toHaveLength(2);
+		expect(warnings[0]).toContain("point locators break across app versions");
 	});
 });

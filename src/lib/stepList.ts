@@ -327,3 +327,616 @@ export function readStepList(rawJson: string, sourcePath: string): StepList {
 	}
 	return validateStepList(parsed);
 }
+
+/* -------------------------------------------------------------------------------------------- */
+/* CR-LENSMITH-A010-2: native step schema (design note §2). A parallel entry point: the web     */
+/* types and validators above keep their exact shapes and messages.                             */
+/* -------------------------------------------------------------------------------------------- */
+
+/** An Accessibility locator: how a native step finds its element in an app's AX tree. */
+export interface AxLocator {
+	identifier?: string;
+	role?: string;
+	title?: string;
+	/** Matched against AXDescription. */
+	label?: string;
+	value?: string;
+	match?: "exact" | "contains";
+	index?: number;
+	in?: "app" | "window" | "menubar" | "statusbar";
+	path?: number[];
+	/** Window-relative point; last resort, warned by {@link stepListWarnings}. */
+	point?: { x: number; y: number };
+}
+
+export interface NativeClickStep {
+	type: "click";
+	app: string;
+	ax: AxLocator;
+	expect?: AxLocator;
+	label?: string;
+	say?: string;
+	timeoutMs?: number;
+}
+
+export interface NativeHoverStep {
+	type: "hover";
+	app: string;
+	ax: AxLocator;
+	expect?: AxLocator;
+	label?: string;
+	say?: string;
+	timeoutMs?: number;
+}
+
+interface NativeTypeStepBase {
+	type: "type";
+	app: string;
+	/** Clicked to focus before typing, when given. */
+	ax?: AxLocator;
+	label?: string;
+	say?: string;
+	timeoutMs?: number;
+}
+
+export interface NativeTypeStepLiteral extends NativeTypeStepBase {
+	text: string;
+}
+
+export interface NativeTypeStepFromKeychain extends NativeTypeStepBase {
+	textFrom: { keychain: { service: string; account: string } };
+}
+
+export type NativeTypeStep = NativeTypeStepLiteral | NativeTypeStepFromKeychain;
+
+export interface KeyStep {
+	type: "key";
+	app: string;
+	/** `"cmd+shift+v"` or an array of such chords; see {@link parseKeys}. */
+	keys: string | string[];
+	/** Locator framed by the zoom after the key settles. */
+	zoom?: AxLocator;
+	label?: string;
+	say?: string;
+	timeoutMs?: number;
+}
+
+export interface ActivateStep {
+	type: "activate";
+	app: string;
+	label?: string;
+	say?: string;
+}
+
+export interface NativeWaitStep {
+	type: "wait";
+	app: string;
+	until: AxLocator;
+	timeoutMs: number;
+	say?: string;
+}
+
+export type NativeStep =
+	| NativeClickStep
+	| NativeHoverStep
+	| NativeTypeStep
+	| KeyStep
+	| ActivateStep
+	| NativeWaitStep;
+
+export type DriveStep = Step | NativeStep;
+
+/** A native step is one that names an `app`. */
+export function isNativeStep(step: DriveStep): step is NativeStep {
+	return typeof (step as { app?: unknown }).app === "string";
+}
+
+export interface AppSpec {
+	bundleId: string;
+	frame?: { x: number; y: number; width: number; height: number };
+	args?: string[];
+}
+
+export type CaptureSpec =
+	| "auto"
+	| "window"
+	| "screen"
+	| { region: { x: number; y: number; width: number; height: number } };
+
+export interface DriveStepList {
+	url?: string;
+	steps: DriveStep[];
+	apps?: AppSpec[];
+	capture?: CaptureSpec;
+	minViewportWidth?: number;
+}
+
+export const MODIFIER_NAMES = ["cmd", "shift", "opt", "ctrl", "fn"] as const;
+export type Modifier = (typeof MODIFIER_NAMES)[number];
+
+const LETTER_KEYS = "abcdefghijklmnopqrstuvwxyz".split("");
+const DIGIT_KEYS = "0123456789".split("");
+const PUNCTUATION_KEYS = [
+	"minus",
+	"equal",
+	"comma",
+	"period",
+	"slash",
+	"semicolon",
+	"quote",
+	"backslash",
+	"leftbracket",
+	"rightbracket",
+	"grave",
+];
+const CONTROL_KEYS = [
+	"return",
+	"tab",
+	"space",
+	"escape",
+	"delete",
+	"forwarddelete",
+	"up",
+	"down",
+	"left",
+	"right",
+	"home",
+	"end",
+	"pageup",
+	"pagedown",
+	...Array.from({ length: 12 }, (_, i) => `f${i + 1}`),
+];
+
+export const KEY_NAMES: readonly string[] = [
+	...LETTER_KEYS,
+	...DIGIT_KEYS,
+	...CONTROL_KEYS,
+	...PUNCTUATION_KEYS,
+];
+export type KeyName = string;
+
+/** Keys that would print a character: they need cmd, ctrl or opt so `keys` never spells text. */
+const PRINTABLE_KEYS = new Set<string>([
+	...LETTER_KEYS,
+	...DIGIT_KEYS,
+	...PUNCTUATION_KEYS,
+	"space",
+]);
+const KEY_NAME_SET = new Set<string>(KEY_NAMES);
+const MODIFIER_SET = new Set<string>(MODIFIER_NAMES);
+
+export interface Chord {
+	key: KeyName;
+	mods: Modifier[];
+}
+
+function parseChord(chord: unknown): Chord {
+	if (typeof chord !== "string" || chord.length === 0) {
+		throw new StepListError(
+			`a "keys" chord must be a non-empty string (got ${JSON.stringify(chord)})`,
+		);
+	}
+	const parts = chord.split("+");
+	const key = parts[parts.length - 1] as string;
+	const mods = parts.slice(0, -1);
+	for (const mod of mods) {
+		if (!MODIFIER_SET.has(mod)) {
+			throw new StepListError(
+				`"keys" chord ${JSON.stringify(chord)} has an unknown modifier ${JSON.stringify(mod)} ` +
+					`(allowed: ${MODIFIER_NAMES.join(", ")})`,
+			);
+		}
+	}
+	if (new Set(mods).size !== mods.length) {
+		throw new StepListError(`"keys" chord ${JSON.stringify(chord)} repeats a modifier`);
+	}
+	if (!KEY_NAME_SET.has(key)) {
+		throw new StepListError(
+			`"keys" chord ${JSON.stringify(chord)} has an unknown key ${JSON.stringify(key)}`,
+		);
+	}
+	if (PRINTABLE_KEYS.has(key) && !mods.some((m) => m === "cmd" || m === "ctrl" || m === "opt")) {
+		throw new StepListError(
+			`"keys" chord ${JSON.stringify(chord)} is a printable key without cmd, ctrl or opt — ` +
+				`free text goes through a "type" step`,
+		);
+	}
+	return { key, mods: mods as Modifier[] };
+}
+
+/** Parses `"cmd+shift+v"` or an array of such strings. Throws {@link StepListError} on a bad chord. */
+export function parseKeys(keys: unknown): Chord[] {
+	if (typeof keys === "string") return [parseChord(keys)];
+	if (Array.isArray(keys) && keys.length > 0) return keys.map(parseChord);
+	throw new StepListError(
+		`"keys" must be a chord string or a non-empty array of chord strings (got ${JSON.stringify(keys)})`,
+	);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+	return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+const LOCATOR_KEYS = ["identifier", "role", "title", "label", "value", "path", "point"] as const;
+const LOCATOR_STRING_KEYS = ["identifier", "role", "title", "label", "value"] as const;
+
+function validateLocator(raw: unknown, where: string): AxLocator {
+	if (!isPlainObject(raw)) {
+		throw new StepListError(`${where} must be an object`);
+	}
+	if (!LOCATOR_KEYS.some((k) => raw[k] !== undefined)) {
+		throw new StepListError(`${where} needs at least one of ${LOCATOR_KEYS.join(", ")}`);
+	}
+	const locator: AxLocator = {};
+	for (const k of LOCATOR_STRING_KEYS) {
+		const v = raw[k];
+		if (v === undefined) continue;
+		if (typeof v !== "string" || v.length === 0) {
+			throw new StepListError(`${where} has a non-string or empty "${k}"`);
+		}
+		locator[k] = v;
+	}
+	if (raw.match !== undefined) {
+		if (raw.match !== "exact" && raw.match !== "contains") {
+			throw new StepListError(
+				`${where} has an invalid "match" (got ${JSON.stringify(raw.match)}; allowed: exact, contains)`,
+			);
+		}
+		locator.match = raw.match;
+	}
+	if (raw.index !== undefined) {
+		if (!isNonNegativeInteger(raw.index)) {
+			throw new StepListError(
+				`${where} has a non-integer or negative "index" (got ${JSON.stringify(raw.index)})`,
+			);
+		}
+		locator.index = raw.index;
+	}
+	if (raw.in !== undefined) {
+		if (raw.in !== "app" && raw.in !== "window" && raw.in !== "menubar" && raw.in !== "statusbar") {
+			throw new StepListError(
+				`${where} has an invalid "in" (got ${JSON.stringify(raw.in)}; allowed: app, window, menubar, statusbar)`,
+			);
+		}
+		locator.in = raw.in;
+	}
+	if (raw.path !== undefined) {
+		if (
+			!Array.isArray(raw.path) ||
+			raw.path.length === 0 ||
+			!raw.path.every(isNonNegativeInteger)
+		) {
+			throw new StepListError(
+				`${where} has an invalid "path" (must be a non-empty array of non-negative integers; ` +
+					`got ${JSON.stringify(raw.path)})`,
+			);
+		}
+		locator.path = [...raw.path];
+	}
+	if (raw.point !== undefined) {
+		const p = raw.point;
+		if (!isPlainObject(p) || !Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+			throw new StepListError(`${where} has an invalid "point" (needs finite "x" and "y")`);
+		}
+		locator.point = { x: p.x as number, y: p.y as number };
+	}
+	return locator;
+}
+
+/** Reverse-DNS bundle id: at least two dot-separated segments of letters, digits, "-" and "_". */
+const BUNDLE_ID = /^[A-Za-z0-9-_]+(\.[A-Za-z0-9-_]+)+$/;
+
+const NATIVE_ONLY_TYPES = new Set(["hover", "key", "activate"]);
+
+function validateOptionalDisplayLabel(
+	value: unknown,
+	label: string,
+	stepType: string,
+): string | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "string") {
+		throw new StepListError(`${label} (type "${stepType}") has a non-string "label"`);
+	}
+	return value;
+}
+
+function validateNativeStep(
+	raw: Record<string, unknown>,
+	index: number,
+	listedApps: Set<string>,
+): NativeStep {
+	const label = stepLabel(index);
+	const { type, app } = raw;
+	const typeName = typeof type === "string" ? type : JSON.stringify(type);
+	if (typeof app !== "string" || !BUNDLE_ID.test(app)) {
+		throw new StepListError(
+			`${label} (type "${typeName}") has an invalid "app" (must be a reverse-DNS bundle id; got ${JSON.stringify(app)})`,
+		);
+	}
+	if (!listedApps.has(app)) {
+		throw new StepListError(
+			`${label} (type "${typeName}") has an "app" ${JSON.stringify(app)} that is not listed in the top-level "apps"`,
+		);
+	}
+	if (raw.selector !== undefined) {
+		throw new StepListError(
+			`${label} (type "${typeName}") has both "app" and "selector" — they are exclusive`,
+		);
+	}
+	const displayLabel = validateOptionalDisplayLabel(raw.label, label, typeName);
+	const say = validateOptionalSay(raw.say, label, typeName);
+
+	if (type === "click" || type === "hover") {
+		const ax = validateLocator(raw.ax, `${label} (type "${type}") "ax"`);
+		const step = { type, app, ax } as NativeClickStep | NativeHoverStep;
+		if (raw.expect !== undefined)
+			step.expect = validateLocator(raw.expect, `${label} (type "${type}") "expect"`);
+		if (displayLabel !== undefined) step.label = displayLabel;
+		if (say !== undefined) step.say = say;
+		const timeoutMs = validateOptionalTimeoutMs(raw.timeoutMs, label, type);
+		if (timeoutMs !== undefined) step.timeoutMs = timeoutMs;
+		return step;
+	}
+
+	if (type === "type") {
+		const hasText = raw.text !== undefined;
+		const hasTextFrom = raw.textFrom !== undefined;
+		if (hasText === hasTextFrom) {
+			throw new StepListError(
+				`${label} (type "type") must have exactly one of "text" or "textFrom" ` +
+					`(got ${hasText ? "both" : "neither"})`,
+			);
+		}
+		const timeoutMs = validateOptionalTimeoutMs(raw.timeoutMs, label, "type");
+		const ax =
+			raw.ax === undefined ? undefined : validateLocator(raw.ax, `${label} (type "type") "ax"`);
+		let step: NativeTypeStep;
+		if (hasText) {
+			if (typeof raw.text !== "string") {
+				throw new StepListError(`${label} (type "type") has a non-string "text"`);
+			}
+			step = { type: "type", app, text: raw.text };
+		} else {
+			const textFrom = raw.textFrom;
+			if (!isPlainObject(textFrom)) {
+				throw new StepListError(`${label} (type "type") has a non-object "textFrom"`);
+			}
+			const keychain = textFrom.keychain;
+			if (!isPlainObject(keychain)) {
+				throw new StepListError(
+					`${label} (type "type") has a "textFrom" with a missing or invalid "keychain" object`,
+				);
+			}
+			const { service, account } = keychain;
+			if (typeof service !== "string" || service.length === 0) {
+				throw new StepListError(
+					`${label} (type "type") has a "textFrom.keychain" with a missing or empty "service"`,
+				);
+			}
+			if (typeof account !== "string" || account.length === 0) {
+				throw new StepListError(
+					`${label} (type "type") has a "textFrom.keychain" with a missing or empty "account"`,
+				);
+			}
+			step = { type: "type", app, textFrom: { keychain: { service, account } } };
+		}
+		if (ax !== undefined) step.ax = ax;
+		if (displayLabel !== undefined) step.label = displayLabel;
+		if (say !== undefined) step.say = say;
+		if (timeoutMs !== undefined) step.timeoutMs = timeoutMs;
+		return step;
+	}
+
+	if (type === "key") {
+		try {
+			parseKeys(raw.keys);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			throw new StepListError(`${label} (type "key") has an invalid "keys": ${message}`);
+		}
+		const keys = Array.isArray(raw.keys) ? [...(raw.keys as string[])] : (raw.keys as string);
+		const step: KeyStep = { type: "key", app, keys };
+		if (raw.zoom !== undefined)
+			step.zoom = validateLocator(raw.zoom, `${label} (type "key") "zoom"`);
+		if (displayLabel !== undefined) step.label = displayLabel;
+		if (say !== undefined) step.say = say;
+		const timeoutMs = validateOptionalTimeoutMs(raw.timeoutMs, label, "key");
+		if (timeoutMs !== undefined) step.timeoutMs = timeoutMs;
+		return step;
+	}
+
+	if (type === "activate") {
+		const step: ActivateStep = { type: "activate", app };
+		if (displayLabel !== undefined) step.label = displayLabel;
+		if (say !== undefined) step.say = say;
+		return step;
+	}
+
+	if (type === "wait") {
+		if (raw.ms !== undefined) {
+			throw new StepListError(
+				`${label} (type "wait") has both "ms" and "app" — a wait is either "ms" or "app" + "until" + "timeoutMs"`,
+			);
+		}
+		if (raw.until === undefined) {
+			throw new StepListError(`${label} (type "wait") has "app" but no "until" locator`);
+		}
+		const until = validateLocator(raw.until, `${label} (type "wait") "until"`);
+		if (raw.timeoutMs === undefined) {
+			throw new StepListError(`${label} (type "wait") has "app" but no positive "timeoutMs"`);
+		}
+		const timeoutMs = validateOptionalTimeoutMs(raw.timeoutMs, label, "wait") as number;
+		const step: NativeWaitStep = { type: "wait", app, until, timeoutMs };
+		if (say !== undefined) step.say = say;
+		return step;
+	}
+
+	throw new StepListError(
+		`${label} has an unknown "type" (got ${JSON.stringify(type)}) — ` +
+			`expected "click", "hover", "type", "key", "activate", or "wait"`,
+	);
+}
+
+function validateRect(
+	raw: unknown,
+	where: string,
+): { x: number; y: number; width: number; height: number } {
+	if (!isPlainObject(raw)) throw new StepListError(`${where} must be an object`);
+	const { x, y, width, height } = raw;
+	if (!Number.isFinite(x) || !Number.isFinite(y)) {
+		throw new StepListError(`${where} needs finite "x" and "y"`);
+	}
+	if (
+		!Number.isFinite(width) ||
+		(width as number) <= 0 ||
+		!Number.isFinite(height) ||
+		(height as number) <= 0
+	) {
+		throw new StepListError(`${where} needs positive finite "width" and "height"`);
+	}
+	return { x: x as number, y: y as number, width: width as number, height: height as number };
+}
+
+function validateApps(raw: unknown): AppSpec[] | undefined {
+	if (raw === undefined) return undefined;
+	if (!Array.isArray(raw)) {
+		throw new StepListError('the step list\'s "apps" must be an array when present');
+	}
+	const seen = new Set<string>();
+	return raw.map((entry, i) => {
+		const where = `the step list's "apps" entry at index ${i}`;
+		if (!isPlainObject(entry)) throw new StepListError(`${where} is not an object`);
+		const { bundleId, frame, args } = entry;
+		if (typeof bundleId !== "string" || !BUNDLE_ID.test(bundleId)) {
+			throw new StepListError(
+				`${where} has an invalid "bundleId" (must be a reverse-DNS bundle id; got ${JSON.stringify(bundleId)})`,
+			);
+		}
+		if (seen.has(bundleId)) {
+			throw new StepListError(
+				`${where} repeats "bundleId" ${JSON.stringify(bundleId)} — bundle ids must be unique`,
+			);
+		}
+		seen.add(bundleId);
+		const spec: AppSpec = { bundleId };
+		if (frame !== undefined) spec.frame = validateRect(frame, `${where} "frame"`);
+		if (args !== undefined) {
+			if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) {
+				throw new StepListError(`${where} has a non-string-array "args"`);
+			}
+			spec.args = [...args];
+		}
+		return spec;
+	});
+}
+
+function validateCapture(raw: unknown): CaptureSpec | undefined {
+	if (raw === undefined) return undefined;
+	if (raw === "auto" || raw === "window" || raw === "screen") return raw;
+	if (isPlainObject(raw) && raw.region !== undefined) {
+		const region = validateRect(raw.region, 'the step list\'s "capture.region"');
+		if (Math.abs(region.width / region.height - 16 / 9) >= 0.001) {
+			throw new StepListError(
+				`the step list's "capture.region" must be 16:9 (got ${region.width}x${region.height})`,
+			);
+		}
+		return { region };
+	}
+	throw new StepListError(
+		`the step list's "capture" must be "auto", "window", "screen" or { "region": {...} } (got ${JSON.stringify(raw)})`,
+	);
+}
+
+/**
+ * Validates a step list that may mix native steps (with `app`) and web steps. A step without `app`
+ * goes through the web validator unchanged. Throws {@link StepListError} naming the first problem.
+ */
+export function validateDriveStepList(parsed: unknown): DriveStepList {
+	if (!isPlainObject(parsed)) {
+		throw new StepListError('the step list must be an object with "steps"');
+	}
+	const { url, steps, minViewportWidth, apps, capture } = parsed;
+	if (!Array.isArray(steps) || steps.length === 0) {
+		throw new StepListError('the step list\'s "steps" must be a non-empty array');
+	}
+	if (url !== undefined && (typeof url !== "string" || url.length === 0)) {
+		throw new StepListError('the step list\'s "url" must be a non-empty string when present');
+	}
+	if (
+		minViewportWidth !== undefined &&
+		(typeof minViewportWidth !== "number" ||
+			!Number.isFinite(minViewportWidth) ||
+			minViewportWidth <= 0)
+	) {
+		throw new StepListError(
+			`the step list's "minViewportWidth" must be a positive finite number when present ` +
+				`(got ${JSON.stringify(minViewportWidth)})`,
+		);
+	}
+	const validatedApps = validateApps(apps);
+	const validatedCapture = validateCapture(capture);
+	const listedApps = new Set((validatedApps ?? []).map((a) => a.bundleId));
+
+	let hasSelector = false;
+	const validatedSteps: DriveStep[] = steps.map((raw, index) => {
+		if (isPlainObject(raw) && raw.app !== undefined) {
+			return validateNativeStep(raw, index, listedApps);
+		}
+		if (isPlainObject(raw) && typeof raw.type === "string" && NATIVE_ONLY_TYPES.has(raw.type)) {
+			throw new StepListError(`${stepLabel(index)} (type "${raw.type}") needs an "app"`);
+		}
+		const step = validateStep(raw, index);
+		if ("selector" in step) hasSelector = true;
+		return step;
+	});
+	if (hasSelector && url === undefined) {
+		throw new StepListError(
+			'the step list\'s "url" must be a non-empty string when any step has a "selector"',
+		);
+	}
+
+	const result: DriveStepList = { steps: validatedSteps };
+	if (url !== undefined) result.url = url as string;
+	if (minViewportWidth !== undefined) result.minViewportWidth = minViewportWidth as number;
+	if (validatedApps !== undefined) result.apps = validatedApps;
+	if (validatedCapture !== undefined) result.capture = validatedCapture;
+	return result;
+}
+
+/** Reads and validates a mixed native/web step list. Throws {@link StepListError} for bad JSON or shape. */
+export function readDriveStepList(rawJson: string, sourcePath: string): DriveStepList {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(rawJson);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		throw new StepListError(`"${sourcePath}" is not valid JSON: ${message}`);
+	}
+	return validateDriveStepList(parsed);
+}
+
+function locatorsOf(step: DriveStep): AxLocator[] {
+	const out: AxLocator[] = [];
+	const s = step as { ax?: AxLocator; expect?: AxLocator; zoom?: AxLocator; until?: AxLocator };
+	for (const l of [s.ax, s.expect, s.zoom, s.until]) if (l !== undefined) out.push(l);
+	return out;
+}
+
+/** One warning per `point` locator: points break across app versions. */
+export function stepListWarnings(list: DriveStepList): string[] {
+	const warnings: string[] = [];
+	list.steps.forEach((step, index) => {
+		for (const locator of locatorsOf(step)) {
+			if (locator.point !== undefined) {
+				warnings.push(
+					`${stepLabel(index)} uses a "point" locator — point locators break across app versions`,
+				);
+			}
+		}
+	});
+	return warnings;
+}

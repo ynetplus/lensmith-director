@@ -1,0 +1,77 @@
+{
+	"apps": [
+		{ "bundleId": "com.example.tinycast" },
+		{ "bundleId": "com.apple.ActivityMonitor" },
+		{
+			"bundleId": "com.apple.Terminal",
+			"frame": { "x": 1700, "y": 120, "width": 1400, "height": 700 }
+		},
+		{ "bundleId": "com.example.csb" },
+		{ "bundleId": "com.example.farol", "frame": { "x": 0, "y": 25, "width": 1600, "height": 900 } }
+	],
+	"capture": { "region": { "x": 800, "y": 150, "width": 1600, "height": 900 } },
+	"steps": [
+		{
+			"type": "key",
+			"app": "com.example.tinycast",
+			"keys": "opt+space",
+			"zoom": { "role": "AXTextField" }
+		},
+		{ "type": "type", "app": "com.example.tinycast", "text": "clipboard history" },
+		{
+			"type": "key",
+			"app": "com.example.tinycast",
+			"keys": ["return", "down"],
+			"zoom": { "role": "AXList" }
+		},
+		{ "type": "activate", "app": "com.apple.ActivityMonitor" },
+		{
+			"type": "hover",
+			"app": "com.apple.ActivityMonitor",
+			"ax": { "role": "AXRow", "title": "Tinycast", "match": "contains" }
+		},
+		{
+			"type": "type",
+			"app": "com.apple.Terminal",
+			"ax": { "role": "AXTextArea" },
+			"text": "claude \"add a parser test\""
+		},
+		{ "type": "key", "app": "com.apple.Terminal", "keys": "return" },
+		{
+			"type": "hover",
+			"app": "com.example.csb",
+			"ax": { "in": "statusbar", "role": "AXMenuBarItem" },
+			"say": "The icon [[moves]] while Claude works"
+		},
+		{
+			"type": "wait",
+			"app": "com.example.csb",
+			"until": { "in": "statusbar", "label": "permission", "match": "contains" },
+			"timeoutMs": 60000
+		},
+		{
+			"type": "click",
+			"app": "com.example.csb",
+			"ax": { "in": "statusbar", "role": "AXMenuBarItem" },
+			"expect": { "role": "AXMenuItem" }
+		},
+		{
+			"type": "click",
+			"app": "com.example.farol",
+			"ax": { "role": "AXButton", "label": "new task", "match": "contains" }
+		},
+		{ "type": "type", "app": "com.example.farol", "text": "claude \"fix issue 12\"" },
+		{
+			"type": "key",
+			"app": "com.example.farol",
+			"keys": "return",
+			"zoom": { "role": "AXOutline" }
+		},
+		{
+			"type": "hover",
+			"app": "com.example.farol",
+			"ax": { "value": "waiting", "match": "contains" },
+			"say": "One agent is [[waiting]]"
+		}
+	]
+}
