@@ -17,7 +17,7 @@ import { SETTLE_PACING } from "../src/lib/timing.js";
 
 const APP = "com.example.notes";
 const PID = 4242;
-const SECRET = "hunter2-very-secret";
+const SECRET = "hunter2-very-secret"; // pragma: allowlist secret (test fixture: proves typed secrets never reach the log)
 
 function element(overrides: Partial<NativeElement> = {}): NativeElement {
 	return {
