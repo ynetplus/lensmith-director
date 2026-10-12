@@ -2,8 +2,8 @@
 // Builds every native macOS helper into bin/ (gitignored — CI and operators
 // build it fresh; see README.md "Development").
 //
-// Plain `swiftc -O` on a single file per helper, deliberately: neither helper
-// has dependencies beyond CoreGraphics and Foundation, so a SwiftPM package
+// Plain `swiftc -O` on a single file per helper, deliberately: no helper has
+// dependencies beyond Apple's system frameworks, so a SwiftPM package
 // would add a manifest, a .build/ tree and a search-for-the-product step to
 // buy nothing. Command Line Tools are enough — full Xcode is not required.
 //
