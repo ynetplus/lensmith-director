@@ -25,8 +25,10 @@ Supported versions: this is a 0.x project; only the latest release receives fixe
 | Start the engine's recorder and read the screen | `demo`, `worker` | Needs Screen Recording permission, granted to the terminal app, not to this tool. |
 | Run unattended and repeatedly | `worker` | Runs every job file it finds in `queue/`. |
 
-The tool makes no network requests of its own. The only network traffic is Chrome loading the pages
-named in the step list. It does not collect telemetry.
+The Director itself sends no telemetry and makes no update check. Its own network traffic is Chrome
+loading the pages named in the step list. A `demo` with `say` lines also runs the engine's `narrate`,
+which downloads its voice model once on first use, and with `--engine edge` sends the line text to
+Microsoft's online Read Aloud service.
 
 ## Consent gates
 

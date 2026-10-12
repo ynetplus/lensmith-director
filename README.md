@@ -108,7 +108,7 @@ A step list is executable: whoever can supply one, or write into a `worker` queu
 
 ## In progress
 
-Planned and not shipped: a headless mode (`drive` and `demo` without a real cursor, for Linux and containers), narration lines per step, and a `plan` helper that maps a URL's pages and clickable elements for the agent.
+Planned and not shipped: a headless mode (`drive` and `demo` without a real cursor, for Linux and containers) and a `plan` helper that maps a URL's pages and clickable elements for the agent.
 
 ## Licence
 
