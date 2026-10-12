@@ -7,18 +7,19 @@ import Foundation
 // app through the public Accessibility API, for Director's native mode
 // (CR-LENSMITH-A010-3, design note RN-lensmith-director-native-mode §3).
 //
-// Part A (this file): serve, trust, prepare, find, hit, focus, press, errors.
-// Part B (CR-LENSMITH-A010-4) adds key, type, settle and tree.
+// Part A (CR-LENSMITH-A010-3): serve, trust, prepare, find, hit, focus, press, errors.
+// Part B (CR-LENSMITH-A010-4): key, type, settle and tree.
 //
 // Rules this helper keeps (design note §10):
-//   - Public APIs only: ApplicationServices (AXUIElement), AppKit (NSWorkspace,
-//     NSRunningApplication, NSScreen). No private AX-to-CGWindowID call.
+//   - Public APIs only: ApplicationServices (AXUIElement, AXObserver), AppKit
+//     (NSWorkspace, NSRunningApplication, NSScreen), CoreGraphics events, Carbon
+//     TIS/UCKeyTranslate. No private AX-to-CGWindowID call.
 //   - stdin pipe only, no socket, no sudo.
-//   - Part A posts NO input events. Visible cursor moves and clicks stay with
-//     lensmith-cursor-choreographer.
-//   - NO ECHO: no reply, error or log line ever contains typed text. Part B's
-//     `type` command must report only a character count; `emitError` below
-//     takes a fixed message and never interpolates request text fields.
+//   - Only `key` and `type` post input events (keyboard only, CoreGraphics).
+//     Visible cursor moves and clicks stay with lensmith-cursor-choreographer.
+//   - NO ECHO: no reply, error or log line ever contains typed text. `type`
+//     reports only a character count; `emitError` below takes a fixed message
+//     and never interpolates request text fields. `tree` never reads values.
 //
 // Coordinates: every frame is in GLOBAL TOP-LEFT POINTS — the same space the
 // cursor helper uses (cursor-choreographer/main.swift, "Coordinate space").
@@ -615,13 +616,433 @@ func handlePress(_ object: [String: Any]) throws {
 	}
 }
 
+// MARK: - Event posting seam (part B)
+//
+// Every keyboard event part B creates goes through `postKeyEvent`, so the
+// event-building logic can be exercised without touching the real session.
+// LENSMITH_NATIVE_DRIVER_DRY_POST=1 swaps it for a no-op (smoke checks only;
+// replies are identical, nothing reaches the HID stream).
+
+var postKeyEvent: (CGEvent) -> Void = { $0.post(tap: .cghidEventTap) }
+if ProcessInfo.processInfo.environment["LENSMITH_NATIVE_DRIVER_DRY_POST"] == "1" {
+	postKeyEvent = { _ in }
+}
+
+let keyEventSource = CGEventSource(stateID: .hidSystemState)
+
+func postKeyStroke(_ keyCode: CGKeyCode, _ flags: CGEventFlags) -> Bool {
+	guard let down = CGEvent(keyboardEventSource: keyEventSource, virtualKey: keyCode, keyDown: true),
+		let up = CGEvent(keyboardEventSource: keyEventSource, virtualKey: keyCode, keyDown: false)
+	else {
+		return false
+	}
+	down.flags = flags
+	up.flags = flags
+	postKeyEvent(down)
+	postKeyEvent(up)
+	return true
+}
+
+// MARK: - key
+
+/// Copied from src/lib/stepList.ts KEY_NAMES (CR-LENSMITH-A010-2), to kVK_* codes.
+let keyCodes: [String: Int] = {
+	var map: [String: Int] = [
+		"a": kVK_ANSI_A, "b": kVK_ANSI_B, "c": kVK_ANSI_C, "d": kVK_ANSI_D, "e": kVK_ANSI_E,
+		"f": kVK_ANSI_F, "g": kVK_ANSI_G, "h": kVK_ANSI_H, "i": kVK_ANSI_I, "j": kVK_ANSI_J,
+		"k": kVK_ANSI_K, "l": kVK_ANSI_L, "m": kVK_ANSI_M, "n": kVK_ANSI_N, "o": kVK_ANSI_O,
+		"p": kVK_ANSI_P, "q": kVK_ANSI_Q, "r": kVK_ANSI_R, "s": kVK_ANSI_S, "t": kVK_ANSI_T,
+		"u": kVK_ANSI_U, "v": kVK_ANSI_V, "w": kVK_ANSI_W, "x": kVK_ANSI_X, "y": kVK_ANSI_Y,
+		"z": kVK_ANSI_Z,
+		"0": kVK_ANSI_0, "1": kVK_ANSI_1, "2": kVK_ANSI_2, "3": kVK_ANSI_3, "4": kVK_ANSI_4,
+		"5": kVK_ANSI_5, "6": kVK_ANSI_6, "7": kVK_ANSI_7, "8": kVK_ANSI_8, "9": kVK_ANSI_9,
+		"return": kVK_Return, "tab": kVK_Tab, "space": kVK_Space, "escape": kVK_Escape,
+		"delete": kVK_Delete, "forwarddelete": kVK_ForwardDelete,
+		"up": kVK_UpArrow, "down": kVK_DownArrow, "left": kVK_LeftArrow, "right": kVK_RightArrow,
+		"home": kVK_Home, "end": kVK_End, "pageup": kVK_PageUp, "pagedown": kVK_PageDown,
+		"minus": kVK_ANSI_Minus, "equal": kVK_ANSI_Equal, "comma": kVK_ANSI_Comma,
+		"period": kVK_ANSI_Period, "slash": kVK_ANSI_Slash, "semicolon": kVK_ANSI_Semicolon,
+		"quote": kVK_ANSI_Quote, "backslash": kVK_ANSI_Backslash,
+		"leftbracket": kVK_ANSI_LeftBracket, "rightbracket": kVK_ANSI_RightBracket,
+		"grave": kVK_ANSI_Grave,
+	]
+	let functionKeys = [
+		kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6, kVK_F7, kVK_F8, kVK_F9, kVK_F10, kVK_F11, kVK_F12,
+	]
+	for (i, code) in functionKeys.enumerated() { map["f\(i + 1)"] = code }
+	return map
+}()
+
+/// Copied from src/lib/stepList.ts MODIFIER_NAMES.
+let modifierFlags: [String: CGEventFlags] = [
+	"cmd": .maskCommand, "shift": .maskShift, "opt": .maskAlternate, "ctrl": .maskControl, "fn": .maskSecondaryFn,
+]
+
+struct ParsedChord {
+	let keyCode: CGKeyCode
+	let flags: CGEventFlags
+	/// cmd, ctrl or opt: a global hotkey that secure input would swallow.
+	let isHotkey: Bool
+}
+
+/// Messages name the chord index only, never the request's values.
+func parseChords(_ object: [String: Any]) throws -> [ParsedChord] {
+	guard let raw = object["chords"] as? [Any], !raw.isEmpty else {
+		throw BadRequest(message: "\"chords\" must be a non-empty array.")
+	}
+	return try raw.enumerated().map { index, item in
+		guard let chord = item as? [String: Any], let key = chord["key"] as? String else {
+			throw BadRequest(message: "Chord \(index) needs a \"key\" string.")
+		}
+		guard let code = keyCodes[key] else {
+			throw BadRequest(message: "Chord \(index) has an unknown key name.")
+		}
+		var mods: [String] = []
+		if let rawMods = chord["mods"], !(rawMods is NSNull) {
+			guard let array = rawMods as? [Any], array.allSatisfy({ $0 is String }) else {
+				throw BadRequest(message: "Chord \(index) \"mods\" must be an array of strings.")
+			}
+			mods = array.map { $0 as! String }
+		}
+		var flags: CGEventFlags = []
+		for mod in mods {
+			guard let flag = modifierFlags[mod] else {
+				throw BadRequest(message: "Chord \(index) has an unknown modifier name.")
+			}
+			flags.insert(flag)
+		}
+		let isHotkey = mods.contains { $0 == "cmd" || $0 == "ctrl" || $0 == "opt" }
+		return ParsedChord(keyCode: CGKeyCode(code), flags: flags, isHotkey: isHotkey)
+	}
+}
+
+func handleKey(_ object: [String: Any]) throws {
+	let chords = try parseChords(object)
+	guard ensureAccessibilityTrusted(cmd: "key") else { return }
+	if chords.contains(where: { $0.isHotkey }) && IsSecureEventInputEnabled() {
+		emitError(
+			"key", ErrorCode.secureInput,
+			"Secure input is on (a password field holds focus somewhere); global hotkeys will not fire.")
+		return
+	}
+	var posted = 0
+	for chord in chords {
+		guard postKeyStroke(chord.keyCode, chord.flags) else {
+			emitError("key", ErrorCode.cannotComplete, "Could not create a keyboard event.", ["posted": posted])
+			return
+		}
+		posted += 1
+	}
+	emitOk("key", ["posted": posted])
+}
+
+// MARK: - type
+//
+// NO ECHO: nothing in this section writes `text`, a character of it, or the
+// request line to stdout or stderr. The reply carries only `count`.
+
+struct KeyStroke {
+	let keyCode: CGKeyCode
+	let flags: CGEventFlags
+}
+
+/// Character → key stroke on the current keyboard layout, built once per process
+/// by walking key codes 0..127 under none, shift, option and shift+option.
+let layoutMap: [Character: KeyStroke] = buildLayoutMap()
+
+func currentLayoutData() -> CFData? {
+	for copy in [TISCopyCurrentKeyboardLayoutInputSource, TISCopyCurrentASCIICapableKeyboardLayoutInputSource] {
+		guard let source = copy()?.takeRetainedValue(),
+			let raw = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
+		else {
+			continue
+		}
+		return Unmanaged<CFData>.fromOpaque(raw).takeUnretainedValue()
+	}
+	return nil
+}
+
+func buildLayoutMap() -> [Character: KeyStroke] {
+	var map: [Character: KeyStroke] = [:]
+	// Fixed keys first, so control characters land on the obvious key.
+	map["\n"] = KeyStroke(keyCode: CGKeyCode(kVK_Return), flags: [])
+	map["\r"] = KeyStroke(keyCode: CGKeyCode(kVK_Return), flags: [])
+	map["\t"] = KeyStroke(keyCode: CGKeyCode(kVK_Tab), flags: [])
+	map[" "] = KeyStroke(keyCode: CGKeyCode(kVK_Space), flags: [])
+	guard let data = currentLayoutData(), let bytes = CFDataGetBytePtr(data) else { return map }
+	let keyboardType = UInt32(LMGetKbdType())
+	// UCKeyTranslate takes the Carbon modifier mask shifted right by 8.
+	let states: [(UInt32, CGEventFlags)] = [
+		(0, []),
+		(UInt32(shiftKey >> 8), .maskShift),
+		(UInt32(optionKey >> 8), .maskAlternate),
+		(UInt32((shiftKey | optionKey) >> 8), [.maskShift, .maskAlternate]),
+	]
+	bytes.withMemoryRebound(to: UCKeyboardLayout.self, capacity: 1) { layout in
+		for (modifierState, flags) in states {
+			for keyCode in 0..<128 {
+				var deadKeyState: UInt32 = 0
+				var length = 0
+				var chars = [UniChar](repeating: 0, count: 4)
+				let status = UCKeyTranslate(
+					layout, UInt16(keyCode), UInt16(kUCKeyActionDown), modifierState, keyboardType,
+					OptionBits(kUCKeyTranslateNoDeadKeysMask), &deadKeyState, chars.count, &length, &chars)
+				guard status == noErr, length > 0 else { continue }
+				let string = String(utf16CodeUnits: chars, count: length)
+				guard string.count == 1, let character = string.first else { continue }
+				// Printable characters only; control characters come from the fixed keys above.
+				guard character.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })
+				else {
+					continue
+				}
+				if map[character] == nil {
+					map[character] = KeyStroke(keyCode: CGKeyCode(keyCode), flags: flags)
+				}
+			}
+		}
+	}
+	return map
+}
+
+/// One character the layout cannot produce: a single key event carrying the
+/// Unicode string (key-down and key-up).
+func postUnicodeCharacter(_ character: Character) -> Bool {
+	let units = Array(String(character).utf16)
+	guard let down = CGEvent(keyboardEventSource: keyEventSource, virtualKey: 0, keyDown: true),
+		let up = CGEvent(keyboardEventSource: keyEventSource, virtualKey: 0, keyDown: false)
+	else {
+		return false
+	}
+	for event in [down, up] {
+		event.flags = []
+		units.withUnsafeBufferPointer { buffer in
+			event.keyboardSetUnicodeString(stringLength: buffer.count, unicodeString: buffer.baseAddress)
+		}
+	}
+	postKeyEvent(down)
+	postKeyEvent(up)
+	return true
+}
+
+let defaultCharDelayMs = 60.0
+let maxCharDelayMs = 1000.0
+
+func handleType(_ object: [String: Any]) throws {
+	// Type checks only: the message names the field, never its value.
+	guard let rawText = object["text"], let text = rawText as? String else {
+		throw BadRequest(message: "Missing required string \"text\".")
+	}
+	let charDelayMs = try numberField(object, "charDelayMs") ?? defaultCharDelayMs
+	guard charDelayMs >= 0, charDelayMs <= maxCharDelayMs else {
+		throw BadRequest(message: "\"charDelayMs\" must be between 0 and 1000.")
+	}
+	guard ensureAccessibilityTrusted(cmd: "type") else { return }
+	var count = 0
+	for character in text {
+		if count > 0 && charDelayMs > 0 {
+			Thread.sleep(forTimeInterval: charDelayMs / 1000.0)
+		}
+		let ok: Bool
+		if let stroke = layoutMap[character] {
+			ok = postKeyStroke(stroke.keyCode, stroke.flags)
+		} else {
+			ok = postUnicodeCharacter(character)
+		}
+		guard ok else {
+			emitError("type", ErrorCode.cannotComplete, "Could not create a keyboard event.", ["count": count])
+			return
+		}
+		count += 1
+	}
+	emitOk("type", ["count": count])
+}
+
+// MARK: - settle (design note §5, Settle LOCK; values come from timing.ts)
+
+let settleNotifications = [
+	kAXCreatedNotification,
+	kAXUIElementDestroyedNotification,
+	kAXValueChangedNotification,
+	kAXTitleChangedNotification,
+	kAXFocusedUIElementChangedNotification,
+	kAXWindowCreatedNotification,  // re-arms quiet: the native "survives navigation"
+	kAXLayoutChangedNotification,
+	kAXMenuOpenedNotification,
+]
+
+/// Last AX notification time, written by the observer callback on this thread's run loop.
+var settleLastNotification = Date()
+
+let settleCallback: AXObserverCallback = { _, _, _, _ in
+	settleLastNotification = Date()
+}
+
+/// One match attempt of a part A locator (same three branches as `find`).
+func locatorMatchesOnce(app: AXUIElement, locator: Locator) -> Bool {
+	let roots = scopeRoots(app: app, scope: locator.scope)
+	if locator.identifier != nil || locator.hasTextKeys {
+		return searchPass(roots: roots, locator: locator).matches.count > locator.index
+	}
+	if let path = locator.path {
+		return roots.first.flatMap { resolvePath(root: $0, path: path) } != nil
+	}
+	if let point = locator.point, let origin = roots.first.flatMap({ frameOf($0) })?.origin {
+		return elementAtGlobal(CGPoint(x: origin.x + point.x, y: origin.y + point.y)) != nil
+	}
+	return false
+}
+
+func handleSettle(_ object: [String: Any]) throws {
+	let pid = try requiredPid(object)
+	let quietMs = try requiredNumber(object, "quietMs")
+	let capMs = try requiredNumber(object, "capMs")
+	guard quietMs >= 0, capMs >= 0 else {
+		throw BadRequest(message: "\"quietMs\" and \"capMs\" must be non-negative.")
+	}
+	let expect = try objectField(object, "expect").map { try parseLocator($0) }
+	guard ensureAccessibilityTrusted(cmd: "settle") else { return }
+	guard runningApp(pid: pid) != nil else {
+		emitError("settle", ErrorCode.noApp, "No running app for that pid.", ["pid": Int(pid)])
+		return
+	}
+	let app = appElement(pid: pid)
+	var observerRef: AXObserver?
+	let created = AXObserverCreate(pid, settleCallback, &observerRef)
+	guard created == .success, let observer = observerRef else {
+		emitError(
+			"settle", ErrorCode.cannotComplete, "Could not create an AX observer.",
+			["axError": Int(created.rawValue)])
+		return
+	}
+	var added: [String] = []
+	for name in settleNotifications
+	where AXObserverAddNotification(observer, app, name as CFString, nil) == .success {
+		added.append(name)
+	}
+	let source = AXObserverGetRunLoopSource(observer)
+	let runLoop = CFRunLoopGetCurrent()
+	CFRunLoopAddSource(runLoop, source, .defaultMode)
+
+	let start = Date()
+	settleLastNotification = start
+	var lastExpectCheck = Date.distantPast
+	var reason = "cap"
+	while true {
+		let now = Date()
+		if let expect, now.timeIntervalSince(lastExpectCheck) >= pollIntervalSeconds {
+			lastExpectCheck = now
+			if locatorMatchesOnce(app: app, locator: expect) {
+				reason = "expect"
+				break
+			}
+		}
+		let afterCheck = Date()
+		if afterCheck.timeIntervalSince(settleLastNotification) * 1000 >= quietMs {
+			reason = "quiet"
+			break
+		}
+		if afterCheck.timeIntervalSince(start) * 1000 >= capMs {
+			reason = "cap"
+			break
+		}
+		_ = CFRunLoopRunInMode(.defaultMode, 0.02, true)
+	}
+	let settleMs = Int((Date().timeIntervalSince(start) * 1000).rounded())
+
+	for name in added {
+		_ = AXObserverRemoveNotification(observer, app, name as CFString)
+	}
+	CFRunLoopRemoveSource(runLoop, source, .defaultMode)
+	emitOk("settle", ["settleMs": settleMs, "reason": reason])
+}
+
+// MARK: - tree
+
+let defaultTreeDepth = 12
+
+/// Depth-first, same scopes and limits as `find` (depth ≤40, ≤5000 nodes).
+/// `path` is relative to the node's scope root; `root` is that root's index in
+/// the scope's search order. `find`'s `path` locator resolves against root 0.
+/// No node's value is read, so an AXSecureTextField's contents never leave the app.
+func handleTree(_ object: [String: Any]) throws {
+	let pid = try requiredPid(object)
+	var scope = "app"
+	if let wanted = try stringField(object, "in") {
+		guard ["app", "window", "menubar", "statusbar"].contains(wanted) else {
+			throw BadRequest(message: "\"in\" must be app, window, menubar or statusbar.")
+		}
+		scope = wanted
+	}
+	var depthLimit = defaultTreeDepth
+	if let depth = try numberField(object, "depth") {
+		guard depth >= 0, depth == depth.rounded() else {
+			throw BadRequest(message: "\"depth\" must be a non-negative integer.")
+		}
+		depthLimit = min(Int(depth), maxDepth)
+	}
+	guard ensureAccessibilityTrusted(cmd: "tree") else { return }
+	guard runningApp(pid: pid) != nil else {
+		emitError("tree", ErrorCode.noApp, "No running app for that pid.", ["pid": Int(pid)])
+		return
+	}
+	let roots = scopeRoots(app: appElement(pid: pid), scope: scope)
+	if roots.isEmpty {
+		emitError("tree", ErrorCode.noWindow, "The app has no window or bar in scope \"\(scope)\".", ["pid": Int(pid)])
+		return
+	}
+	var nodes: [[String: Any]] = []
+	var truncated = false
+	var stack: [(element: AXUIElement, root: Int, path: [Int])] = roots.enumerated().reversed().map {
+		($0.element, $0.offset, [])
+	}
+	while let (element, root, path) = stack.popLast() {
+		if nodes.count >= maxNodes {
+			truncated = true
+			break
+		}
+		nodes.append([
+			"root": root,
+			"path": path,
+			"role": stringAttribute(element, kAXRoleAttribute),
+			"title": stringAttribute(element, kAXTitleAttribute),
+			"label": stringAttribute(element, kAXDescriptionAttribute),
+			"identifier": stringAttribute(element, kAXIdentifierAttribute),
+			"frame": frameJSON(frameOf(element)),
+		])
+		if path.count < depthLimit {
+			let children = elementsAttribute(element, kAXChildrenAttribute)
+			for (index, child) in children.enumerated().reversed() {
+				stack.append((child, root, path + [index]))
+			}
+		}
+	}
+	emitOk("tree", ["nodes": nodes, "truncated": truncated])
+}
+
 // MARK: - serve (long-lived, one NDJSON command per line on stdin)
 
 let gatedCommands: Set<String> = ["prepare", "find", "hit", "focus", "press"]
 
+/// Part B (CR-LENSMITH-A010-4): each handler parses, then calls ensureAccessibilityTrusted.
+let partBHandlers: [String: ([String: Any]) throws -> Void] = [
+	"key": handleKey, "type": handleType, "settle": handleSettle, "tree": handleTree,
+]
+
 func dispatch(_ cmd: String, _ object: [String: Any]) {
 	if cmd == "trust" {
 		handleTrust()
+		return
+	}
+	if let handler = partBHandlers[cmd] {
+		// Part B handlers validate the request first, then pass the same trust
+		// gate before touching the app or posting any event.
+		do {
+			try handler(object)
+		} catch let error as BadRequest {
+			emitError(cmd, ErrorCode.badRequest, error.message)
+		} catch {
+			emitError(cmd, ErrorCode.cannotComplete, "Unexpected failure.")
+		}
 		return
 	}
 	guard gatedCommands.contains(cmd) else {
@@ -675,8 +1096,9 @@ let usage = """
 	  lensmith-native-driver serve
 
 	`serve` prints {"type":"ready"}, then reads one JSON command per line on stdin and
-	writes one JSON reply per line on stdout. Commands (part A): trust, prepare, find,
-	hit, focus, press, quit. Part A posts no input events.
+	writes one JSON reply per line on stdout. Commands: trust, prepare, find, hit,
+	focus, press, key, type, settle, tree, quit. Only key and type post (keyboard)
+	events; type replies with a character count only.
 	"""
 
 let args = Array(CommandLine.arguments.dropFirst())
