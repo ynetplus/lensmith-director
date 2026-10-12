@@ -11,6 +11,7 @@ const binDir = path.join(repoRoot, "bin");
 
 export const CURSOR_CHOREOGRAPHER_NAME = "lensmith-cursor-choreographer";
 export const SCREEN_CAPTURE_PREFLIGHT_NAME = "lensmith-screen-capture-preflight";
+export const NATIVE_DRIVER_NAME = "lensmith-native-driver";
 
 export class NativeHelperMissingError extends Error {}
 
@@ -43,6 +44,20 @@ export function resolveScreenCapturePreflightPath(baseDir: string = binDir): str
 	} catch {
 		throw new NativeHelperMissingError(
 			`Native helper "${SCREEN_CAPTURE_PREFLIGHT_NAME}" not found or not executable at ${helperPath}. ` +
+				'Run "npm run build:native:mac" first (macOS, requires Apple\'s Command Line Tools).',
+		);
+	}
+	return helperPath;
+}
+
+/** Same missing-binary discipline as {@link resolveCursorChoreographerPath}, for the AX driver (CR-LENSMITH-A010-5). */
+export function resolveNativeDriverPath(baseDir: string = binDir): string {
+	const helperPath = path.join(baseDir, NATIVE_DRIVER_NAME);
+	try {
+		accessSync(helperPath, fsConstants.X_OK);
+	} catch {
+		throw new NativeHelperMissingError(
+			`Native helper "${NATIVE_DRIVER_NAME}" not found or not executable at ${helperPath}. ` +
 				'Run "npm run build:native:mac" first (macOS, requires Apple\'s Command Line Tools).',
 		);
 	}
