@@ -41,8 +41,19 @@ import {
 } from "../lib/calibration.js";
 import { CursorChoreographer, CursorChoreographerError } from "../lib/cursorChoreographer.js";
 import { type ExecFileFn, KeychainTextError, resolveKeychainText } from "../lib/keychainText.js";
+import type { NativeDriverLike } from "../lib/nativeDriver.js";
 import { NativeHelperMissingError } from "../lib/nativeHelpers.js";
-import { readStepList, type Step, type StepList, StepListError, sayMark } from "../lib/stepList.js";
+import { type CaptureRegion, driveNativeStep, toCaptureSpace } from "../lib/nativeSteps.js";
+import {
+	type DriveStep,
+	type DriveStepList,
+	isNativeStep,
+	readDriveStepList,
+	type Step,
+	type StepList,
+	StepListError,
+	sayMark,
+} from "../lib/stepList.js";
 import { distancePx, pauseBeforeNextStepMs, SETTLE_PACING, travelMs } from "../lib/timing.js";
 import { emitZoomRegions, type ViewportSize } from "../lib/zoomEmission.js";
 
@@ -154,7 +165,19 @@ export interface ChoreographerLike {
 }
 
 export interface RunDriveDeps {
-	page: PageLike;
+	/** Required when the step list has a `url` (web mode); a native-only list runs without one. */
+	page?: PageLike;
+	/**
+	 * CR-LENSMITH-A010-6: native mode. `pids` maps bundle id → launched pid; `capture` is the
+	 * capture region in screen points (every logged box is moved into it); `activate` brings a
+	 * pid to the front.
+	 */
+	native?: {
+		driver: NativeDriverLike;
+		pids: Map<string, number>;
+		capture?: CaptureRegion;
+		activate: ActivateProcess;
+	};
 	choreographer: ChoreographerLike;
 	/** Injectable clock (ms). Production uses a real monotonic clock; tests want determinism. */
 	now?: () => number;
@@ -298,7 +321,7 @@ interface VoicePlan {
 }
 
 function voicePlanFor(
-	step: Step,
+	step: DriveStep,
 	index: number,
 	narration: NarrationTimings | undefined,
 ): VoicePlan | undefined {
@@ -988,7 +1011,7 @@ function buildClickEntry(args: {
  * to the target. The first step has no known origin, so it takes the longest
  * allowed travel (the spec's cap for 1000 points or more).
  */
-function travelFor(lastPoint: PointLike | undefined, target: PointLike): number {
+export function travelFor(lastPoint: PointLike | undefined, target: PointLike): number {
 	return lastPoint === undefined
 		? SETTLE_PACING.travelMaxMs
 		: travelMs(distancePx(lastPoint, target));
@@ -1239,13 +1262,36 @@ async function driveTypeStep(
  * file unless this resolves, which is the "a failed run writes no partial
  * output" invariant satisfied structurally, not by an extra flag to forget.
  */
-export async function runDrive(stepList: StepList, deps: RunDriveDeps): Promise<RunDriveResult> {
+export async function runDrive(
+	stepList: DriveStepList,
+	deps: RunDriveDeps,
+): Promise<RunDriveResult> {
 	const now = deps.now ?? (() => performance.now());
 	const sleep = deps.sleep ?? realSleep;
-	const navigationTimeoutMs = deps.navigationTimeoutMs ?? DEFAULT_NAVIGATION_TIMEOUT_MS;
-	const { page, choreographer } = deps;
 	const narration =
-		deps.narration === undefined ? undefined : validateNarration(deps.narration, stepList);
+		deps.narration === undefined
+			? undefined
+			: validateNarration(deps.narration, stepList as StepList);
+
+	// CR-LENSMITH-A010-6: no `url` → a native-only run: no goto, no bring-to-front, no
+	// calibration; the result viewport is the capture size.
+	if (stepList.url === undefined) {
+		const capture = deps.native?.capture;
+		const t0 = now();
+		const actionLog = await runSteps(stepList, deps, {
+			now,
+			sleep,
+			narration,
+			t0,
+			offset: { x: 0, y: 0 },
+			viewport: { width: capture?.width ?? 0, height: capture?.height ?? 0 },
+		});
+		return { actionLog, viewport: { width: capture?.width ?? 0, height: capture?.height ?? 0 } };
+	}
+
+	const navigationTimeoutMs = deps.navigationTimeoutMs ?? DEFAULT_NAVIGATION_TIMEOUT_MS;
+	const page = deps.page;
+	if (!page) throw new DriveError(`step list has a "url" but no page was given to drive it`);
 
 	// `context.setDefaultNavigationTimeout` (set once in
 	// `withLaunchedChrome`) bounds this already; passed explicitly here too so
@@ -1294,6 +1340,40 @@ export async function runDrive(stepList: StepList, deps: RunDriveDeps): Promise<
 		);
 	}
 
+	const actionLog = await runSteps(stepList, deps, { now, sleep, narration, t0, offset, viewport });
+	return { actionLog, viewport };
+}
+
+/** Moves a web step's viewport box into capture space (screen = viewport + calibration offset). */
+function webBoxToCapture(
+	entry: ActionLogEntry,
+	offset: PointLike,
+	capture: CaptureRegion | undefined,
+): ActionLogEntry {
+	if (!capture || (entry.type !== "click" && entry.type !== "type")) return entry;
+	const b = entry.boundingBox;
+	entry.boundingBox = toCaptureSpace(
+		{ x: b.x + offset.x, y: b.y + offset.y, width: b.width, height: b.height },
+		capture,
+	);
+	return entry;
+}
+
+/** The step loop shared by web and native runs (CR-LENSMITH-A010-6 split it out of `runDrive`). */
+async function runSteps(
+	stepList: DriveStepList,
+	deps: RunDriveDeps,
+	run: {
+		now: () => number;
+		sleep: (ms: number) => Promise<void>;
+		narration: NarrationTimings | undefined;
+		t0: number;
+		offset: PointLike;
+		viewport: ViewportSize;
+	},
+): Promise<ActionLogEntry[]> {
+	const { now, sleep, narration, t0, offset, viewport } = run;
+	const { choreographer } = deps;
 	const actionLog: ActionLogEntry[] = [];
 	let lastPoint: PointLike | undefined;
 
@@ -1303,51 +1383,96 @@ export async function runDrive(stepList: StepList, deps: RunDriveDeps): Promise<
 
 		const voice = voicePlanFor(step, index, narration);
 
-		if (step.type === "wait") {
-			const atMs = now() - t0;
-			// A narrated wait lasts max(ms, voice + tail); its line starts with the wait.
-			await sleep(voice ? Math.max(step.ms, voice.durationMs + NARRATION_TAIL_MS) : step.ms);
-			const entry: ActionLogEntry = { index, type: "wait", atMs, ms: step.ms };
-			if (voice) {
-				entry.voiceLineId = voice.lineId;
-				entry.voiceStartMs = atMs;
+		if (isNativeStep(step)) {
+			const native = deps.native;
+			if (!native) {
+				throw new DriveError(
+					`step at index ${index} (type "${step.type}", app "${step.app}") is a native step, ` +
+						"but this run has no native driver",
+				);
 			}
+			const entry = await driveNativeStep(
+				step,
+				index,
+				{
+					driver: native.driver,
+					choreographer,
+					now,
+					sleep,
+					execFile: deps.execFile,
+					activate: native.activate,
+				},
+				{
+					pids: native.pids,
+					capture: native.capture ?? { x: 0, y: 0, width: 0, height: 0 },
+					t0,
+					lastPoint,
+					voice,
+				},
+			);
 			actionLog.push(entry);
-			continue;
-		}
-
-		if (step.type === "type") {
-			actionLog.push(
-				await driveTypeStep(
-					step,
-					index,
-					{ page, choreographer, now, execFile: deps.execFile },
-					offset,
-					viewport,
-					t0,
-					lastPoint,
-					voice,
-				),
-			);
+			if (entry.type === "wait") continue;
 		} else {
-			actionLog.push(
-				await driveClickStep(
-					step,
-					index,
-					{ page, choreographer, now },
-					offset,
-					viewport,
-					t0,
-					lastPoint,
-					voice,
-				),
-			);
+			const page = deps.page;
+			if (!page) {
+				throw new DriveError(
+					`step at index ${index} (type "${step.type}") is a web step, but this run has no page`,
+				);
+			}
+			if (step.type === "wait") {
+				const atMs = now() - t0;
+				// A narrated wait lasts max(ms, voice + tail); its line starts with the wait.
+				await sleep(voice ? Math.max(step.ms, voice.durationMs + NARRATION_TAIL_MS) : step.ms);
+				const entry: ActionLogEntry = { index, type: "wait", atMs, ms: step.ms };
+				if (voice) {
+					entry.voiceLineId = voice.lineId;
+					entry.voiceStartMs = atMs;
+				}
+				actionLog.push(entry);
+				continue;
+			}
+
+			if (step.type === "type") {
+				actionLog.push(
+					webBoxToCapture(
+						await driveTypeStep(
+							step,
+							index,
+							{ page, choreographer, now, execFile: deps.execFile },
+							offset,
+							viewport,
+							t0,
+							lastPoint,
+							voice,
+						),
+						offset,
+						deps.native?.capture,
+					),
+				);
+			} else {
+				actionLog.push(
+					webBoxToCapture(
+						await driveClickStep(
+							step,
+							index,
+							{ page, choreographer, now },
+							offset,
+							viewport,
+							t0,
+							lastPoint,
+							voice,
+						),
+						offset,
+						deps.native?.capture,
+					),
+				);
+			}
 		}
 
 		// Settle pacing: hold the result at full zoom, then zoom out and breathe at 1x before the next
 		// step (no breath after the last step: nothing follows it).
 		const driven = actionLog[actionLog.length - 1];
-		if (driven && driven.type !== "wait") lastPoint = { x: driven.screenX, y: driven.screenY };
+		if (driven && "screenX" in driven) lastPoint = { x: driven.screenX, y: driven.screenY };
 		// Narrated: hold until max(settle + result hold, voice end + tail) — the camera never zooms out
 		// over the voice (pacing LOCK, CR-LENSMITH-A008-2).
 		let holdMs: number = SETTLE_PACING.resultHoldMs;
@@ -1362,7 +1487,7 @@ export async function runDrive(stepList: StepList, deps: RunDriveDeps): Promise<
 		if (index < stepList.steps.length - 1) await sleep(pauseBeforeNextStepMs(false));
 	}
 
-	return { actionLog, viewport };
+	return actionLog;
 }
 
 const EXCLUSIVE_MACHINE_NOTICE =
@@ -1477,16 +1602,22 @@ export function registerDriveCommand(program: Command): void {
 				browserChannel: string;
 				narration?: string;
 			}) => {
-				let stepList: StepList;
+				let stepList: DriveStepList;
 				let narration: NarrationTimings | undefined;
 				try {
 					const raw = readFileSync(opts.steps, "utf-8");
-					stepList = readStepList(raw, opts.steps);
+					stepList = readDriveStepList(raw, opts.steps);
+					if (stepList.url === undefined) {
+						throw new DriveError(
+							`"${opts.steps}" has no "url", so it is a native step list; native lists run ` +
+								"through `lensmith-director demo`, not `drive`",
+						);
+					}
 					if (opts.narration !== undefined) {
 						narration = readNarrationTimings(
 							readFileSync(opts.narration, "utf-8"),
 							opts.narration,
-							stepList,
+							stepList as StepList,
 						);
 					}
 				} catch (error) {

@@ -15,6 +15,8 @@
  * ambiguity.
  */
 
+import type { AxLocator } from "./stepList.js";
+
 export interface BoundingBoxLike {
 	x: number;
 	y: number;
@@ -38,6 +40,12 @@ export interface ActionLogClickEntry {
 	boundingBox: BoundingBoxLike;
 	/** ms from the click until the result settled (the `expect` selector visible, else DOM quiet; capped). CR-LENSMITH-A007-2. */
 	settleMs: number;
+	/** CR-LENSMITH-A010-6: native steps only — the target app's bundle id. */
+	app?: string;
+	/** CR-LENSMITH-A010-6: native steps only — the locator; `selector` then holds `describeLocator(ax)`. */
+	ax?: AxLocator;
+	/** CR-LENSMITH-A010-6: native steps only — why the helper's settle returned (`quiet`, `expect`, `cap`). */
+	settleReason?: string;
 	/** CR-LENSMITH-A008-2: the narration line id spoken over this step (`s<index>`), when narrated. */
 	voiceLineId?: string;
 	/** CR-LENSMITH-A008-2: when that line starts, relative to `t0` (same clock as the other times). */
@@ -50,6 +58,10 @@ export interface ActionLogWaitEntry {
 	/** When the wait began, relative to `t0`. */
 	atMs: number;
 	ms: number;
+	/** CR-LENSMITH-A010-6: a native `wait` with `until` — the app it watched. */
+	app?: string;
+	/** CR-LENSMITH-A010-6: the locator a native `wait` waited for. */
+	until?: AxLocator;
 	/** CR-LENSMITH-A008-2: the narration line id spoken over this step (`s<index>`), when narrated. */
 	voiceLineId?: string;
 	/** CR-LENSMITH-A008-2: when that line starts, relative to `t0` (same clock as the other times). */
@@ -80,10 +92,73 @@ export interface ActionLogTypeEntry {
 	characterCount: number;
 	/** ms from the last character until the result settled. CR-LENSMITH-A007-2. */
 	settleMs: number;
+	/** CR-LENSMITH-A010-6: native steps only — the target app's bundle id. */
+	app?: string;
+	/** CR-LENSMITH-A010-6: native steps only — the locator; `selector` then holds `describeLocator(ax)`. */
+	ax?: AxLocator;
+	/** CR-LENSMITH-A010-6: native steps only — why the helper's settle returned (`quiet`, `expect`, `cap`). */
+	settleReason?: string;
 	/** CR-LENSMITH-A008-2: the narration line id spoken over this step (`s<index>`), when narrated. */
 	voiceLineId?: string;
 	/** CR-LENSMITH-A008-2: when that line starts, relative to `t0` (same clock as the other times). */
 	voiceStartMs?: number;
 }
 
-export type ActionLogEntry = ActionLogClickEntry | ActionLogWaitEntry | ActionLogTypeEntry;
+/** CR-LENSMITH-A010-6: a native `hover` — a click entry without the click. */
+export interface ActionLogHoverEntry {
+	index: number;
+	type: "hover";
+	app: string;
+	selector: string;
+	ax: AxLocator;
+	label?: string;
+	startedAtMs: number;
+	/** When the cursor came to rest on the target (after the dwell), relative to `t0`. */
+	hoveredAtMs: number;
+	screenX: number;
+	screenY: number;
+	/** The element's frame in capture space. */
+	boundingBox: BoundingBoxLike;
+	settleMs: number;
+	settleReason: string;
+	voiceLineId?: string;
+	voiceStartMs?: number;
+}
+
+/**
+ * CR-LENSMITH-A010-6: a native `key`. `keys` holds normalised chord names
+ * (`cmd+shift+v`), never free text.
+ */
+export interface ActionLogKeyEntry {
+	index: number;
+	type: "key";
+	app: string;
+	keys: string[];
+	label?: string;
+	atMs: number;
+	settleMs: number;
+	settleReason: string;
+	/** The `zoom` locator's frame in capture space, when the step names one. */
+	boundingBox?: BoundingBoxLike;
+	voiceLineId?: string;
+	voiceStartMs?: number;
+}
+
+/** CR-LENSMITH-A010-6: a native `activate` (bring the app to the front). */
+export interface ActionLogActivateEntry {
+	index: number;
+	type: "activate";
+	app: string;
+	label?: string;
+	atMs: number;
+	voiceLineId?: string;
+	voiceStartMs?: number;
+}
+
+export type ActionLogEntry =
+	| ActionLogClickEntry
+	| ActionLogWaitEntry
+	| ActionLogTypeEntry
+	| ActionLogHoverEntry
+	| ActionLogKeyEntry
+	| ActionLogActivateEntry;
