@@ -6,9 +6,17 @@
 // has dependencies beyond CoreGraphics and Foundation, so a SwiftPM package
 // would add a manifest, a .build/ tree and a search-for-the-product step to
 // buy nothing. Command Line Tools are enough — full Xcode is not required.
+//
+// Two modes (CR-LENSMITH-A009-3, mirroring the engine's CR-LENSMITH-A009-2):
+//   node scripts/build-native-mac.mjs              host arch only (contributors, CI tests)
+//   node scripts/build-native-mac.mjs --universal  arm64 + x86_64, merged with `lipo`
+//                                                  into one universal binary per helper.
+//                                                  This is what the npm tarball ships, so
+//                                                  a user's machine never compiles Swift.
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -16,6 +24,8 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 const binDir = path.join(root, "bin");
+const universal = process.argv.includes("--universal");
+const UNIVERSAL_ARCHS = ["arm64", "x86_64"];
 
 const HELPERS = [
 	{
@@ -51,6 +61,29 @@ if (swiftcVersion.status !== 0) {
 	process.exit(1);
 }
 
+function run(command, args) {
+	const result = spawnSync(command, args, { cwd: root, stdio: "inherit" });
+	if (result.error) {
+		console.error(`Failed to start ${command}: ${result.error.message}`);
+		process.exit(1);
+	}
+	if (result.status !== 0) {
+		process.exit(result.status ?? 1);
+	}
+}
+
+function assertUniversal(file) {
+	const result = spawnSync("lipo", ["-archs", file], { encoding: "utf8" });
+	const archs = (result.stdout ?? "").trim().split(/\s+/);
+	const missing = UNIVERSAL_ARCHS.filter((a) => !archs.includes(a));
+	if (result.status !== 0 || missing.length > 0) {
+		console.error(
+			`${file} is not universal (lipo -archs: "${archs.join(" ")}", missing: ${missing.join(", ")}).`,
+		);
+		process.exit(1);
+	}
+}
+
 fs.mkdirSync(binDir, { recursive: true });
 
 for (const helper of HELPERS) {
@@ -60,19 +93,29 @@ for (const helper of HELPERS) {
 	}
 
 	const dest = path.join(binDir, helper.name);
-	console.log(`Building ${helper.name}...`);
-	const result = spawnSync("swiftc", ["-O", "-o", dest, helper.source], {
-		cwd: root,
-		stdio: "inherit",
-	});
-	if (result.error) {
-		console.error(`Failed to start swiftc: ${result.error.message}`);
-		process.exit(1);
-	}
-	if (result.status !== 0) {
-		process.exit(result.status ?? 1);
+
+	if (universal) {
+		// One swiftc per arch into a temp slice, then one lipo merge. The slices never
+		// land in bin/, so a later host-only build can never pick one up.
+		const sliceDir = fs.mkdtempSync(path.join(os.tmpdir(), `${helper.name}-`));
+		const slices = UNIVERSAL_ARCHS.map((arch) => {
+			const slice = path.join(sliceDir, `${helper.name}-${arch}`);
+			console.log(`Building ${helper.name} (${arch})...`);
+			run("swiftc", ["-O", "-target", `${arch}-apple-macos11`, "-o", slice, helper.source]);
+			return slice;
+		});
+		run("lipo", ["-create", "-output", dest, ...slices]);
+		fs.rmSync(sliceDir, { recursive: true, force: true });
+		fs.chmodSync(dest, 0o755);
+		assertUniversal(dest);
+		console.log(
+			`Built ${helper.name} -> bin/${helper.name} (universal: ${UNIVERSAL_ARCHS.join(" + ")})`,
+		);
+		continue;
 	}
 
+	console.log(`Building ${helper.name}...`);
+	run("swiftc", ["-O", "-o", dest, helper.source]);
 	fs.chmodSync(dest, 0o755);
 	console.log(`Built ${helper.name} -> bin/${helper.name}`);
 }

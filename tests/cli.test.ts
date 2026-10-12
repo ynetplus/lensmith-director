@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,6 +36,22 @@ describe("lensmith-director CLI", () => {
 		const result = runCli(["--version"]);
 		expect(result.status).toBe(0);
 		expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
+	});
+
+	it("--version through a symlink still prints (npm's bin shim is a symlink; no silent exit)", () => {
+		// CR-LENSMITH-A009-3: `npm install -g` links <prefix>/bin/lensmith-director ->
+		// .../dist/cli.js. A string compare of argv[1] against import.meta.url is false
+		// through that link, and the CLI used to exit 0 with no output.
+		const linkDir = mkdtempSync(path.join(tmpdir(), "lensmith-director-symlink-"));
+		try {
+			const link = path.join(linkDir, "lensmith-director");
+			symlinkSync(CLI_PATH, link);
+			const result = spawnSync("node", [link, "--version"], { encoding: "utf-8" });
+			expect(result.status).toBe(0);
+			expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
+		} finally {
+			rmSync(linkDir, { recursive: true, force: true });
+		}
 	});
 
 	it("--help exits 0 and lists the cursor, drive, demo and worker commands", () => {

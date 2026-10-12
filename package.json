@@ -2,7 +2,14 @@
 	"name": "lensmith-director",
 	"version": "0.1.0",
 	"description": "Drives a running web app with the real macOS cursor and directs a demo recording of it.",
-	"private": true,
+	"keywords": [
+		"ai-agents",
+		"cli",
+		"cursor",
+		"demo-video",
+		"macos",
+		"playwright"
+	],
 	"type": "module",
 	"license": "Apache-2.0",
 	"repository": {
@@ -14,20 +21,35 @@
 		"url": "https://github.com/ynetplus/lensmith-director/issues"
 	},
 	"bin": {
-		"lensmith-director": "./dist/cli.js"
+		"lensmith-director": "dist/cli.js"
 	},
+	"files": [
+		"dist/",
+		"bin/",
+		"LICENSE",
+		"NOTICE.md",
+		"README.md"
+	],
 	"engines": {
 		"node": ">=18"
+	},
+	"os": [
+		"darwin"
+	],
+	"publishConfig": {
+		"access": "public"
 	},
 	"scripts": {
 		"build": "tsc",
 		"build:native:mac": "node scripts/build-native-mac.mjs",
 		"test": "vitest run",
 		"lint": "biome check .",
-		"format": "biome check --write ."
+		"format": "biome check --write .",
+		"prepublishOnly": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && npm run build && npm run build:native:mac -- --universal"
 	},
 	"dependencies": {
 		"commander": "^12.1.0",
+		"lensmith": "^0.1.0",
 		"playwright": "^1.62.1"
 	},
 	"devDependencies": {

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { registerCursorCommand } from "./commands/cursor.js";
 import { registerDemoCommand } from "./commands/demo.js";
@@ -26,7 +28,22 @@ export function buildProgram(): Command {
 	return program;
 }
 
-const isMainModule = process.argv[1] === new URL(import.meta.url).pathname;
+// Compare real paths: an npm install runs the CLI through a bin symlink
+// (`<prefix>/bin/lensmith-director` -> `.../lensmith-director/dist/cli.js`), so
+// argv[1] is the symlink while import.meta.url is the resolved file — a plain
+// string compare is false and the installed CLI exits silently. Mirrors the
+// engine's isInvokedDirectly() (CR-LENSMITH-A009-2); CR-LENSMITH-A009-3.
+function isInvokedDirectly(): boolean {
+	const invoked = process.argv[1];
+	if (!invoked) return false;
+	try {
+		return realpathSync(invoked) === realpathSync(fileURLToPath(import.meta.url));
+	} catch {
+		return false;
+	}
+}
+
+const isMainModule = isInvokedDirectly();
 
 if (isMainModule) {
 	buildProgram().parse(process.argv);
