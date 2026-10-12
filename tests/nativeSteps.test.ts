@@ -60,8 +60,8 @@ function fakes(
 			calls.push("hit");
 			return { element: el, pid: opts.hitPid === undefined ? PID : opts.hitPid };
 		},
-		focus: async () => {},
-		press: async () => {},
+		focus: async () => undefined,
+		press: async () => undefined,
 		key: async (chords) => {
 			calls.push(`key:${chords.length}`);
 			return chords.length;
@@ -77,11 +77,11 @@ function fakes(
 			return { settleMs: 120, reason: options.expect ? "expect" : "quiet" };
 		},
 		tree: async () => [],
-		stop: () => {},
+		stop: () => undefined,
 	};
 	const choreographer: ChoreographerLike = {
-		start: async () => {},
-		stop: () => {},
+		start: async () => undefined,
+		stop: () => undefined,
 		moveTo: async (x, y) => {
 			calls.push("moveTo");
 			return { elapsedMs: 1, to: { x, y } };
@@ -103,7 +103,7 @@ function fakes(
 			clock += 10;
 			return clock;
 		},
-		sleep: async () => {},
+		sleep: async () => undefined,
 		activate: async (pid) => {
 			calls.push("activate");
 			activated.push(pid);
@@ -272,7 +272,7 @@ describe("runDrive with a native-only list", () => {
 		const result = await runDrive(list, {
 			choreographer: f.choreographer,
 			now: f.deps.now,
-			sleep: async () => {},
+			sleep: async () => undefined,
 			native: {
 				driver: f.driver,
 				pids: new Map([[APP, PID]]),
@@ -303,7 +303,7 @@ describe("runDrive with a native-only list", () => {
 		const f = fakes();
 		const error = await runDrive(list, {
 			choreographer: f.choreographer,
-			sleep: async () => {},
+			sleep: async () => undefined,
 		}).catch((e) => e);
 		expect(error).toBeInstanceOf(DriveError);
 		expect(error.message).toContain("index 0");
