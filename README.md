@@ -69,7 +69,7 @@ When any step has `say`, `demo` runs a narrate stage first: it writes `out/narra
 
 ## Commands
 
-All of them except `cursor position` post real input events.
+All of them except `cursor position`, `native doctor` and `native tree` post real input events.
 
 | Command | Posts events | What it does |
 |---|---|---|
@@ -78,9 +78,60 @@ All of them except `cursor position` post real input events.
 | `cursor click` | yes | Click at the current cursor position. `--json` |
 | `drive` | yes | Open Chrome, run a step list through the real cursor, write an action log and a zoom-regions fragment. `--steps`, `--out`, `--zooms`, `--profile-dir`, `--browser-channel`, `--keep-open`, `--narration <timings.json>` (a step's optional `say` line, at most one `[[mark]]`, is timed to line `s<index>`: `s0`, `s1`, …; the click lands on the mark and the result holds until the line ends + 600 ms) |
 | `demo` | yes | Narrate the `say` lines (when any), record, drive, compose and render one clip, and write a manifest. `--steps`, `--out-dir`, `--profile-dir`, `--browser-channel`, `--voice`, `--engine`, `--captions burn\|srt\|none` (with `say` lines the delivered film is `final-voiced.mp4`) |
+| `native doctor` | no | Check that this Mac can drive native apps. Never prompts. `--json` |
+| `native tree` | no | Print an app's Accessibility tree to pick locators. `--app <bundleId>` (required), `--in`, `--depth`, `--json` |
 | `worker` | yes | Watch a job directory and run `demo` for each job file, one at a time. `--jobs`, `--poll` |
 
 `lensmith-director <command> --help` prints the live flag list.
+
+## Native apps (macOS)
+
+`drive` and `demo` can also film an app that is not a web page: Calculator, a menu-bar tool, a terminal app, a Tauri or Electron window. A step that names an `app` (a bundle id) is native and finds its element in the Accessibility (AX) tree. A step with a `selector` is a web step and works as before. `url` is needed only when a list has web steps.
+
+| Step | Fields | What happens |
+|---|---|---|
+| `click` | `app`, `ax`, optional `expect` | Cursor travels to the element, dwells, clicks for real |
+| `type` | `app`, optional `ax` (clicked to focus), `text` or `textFrom.keychain` | Types at a human pace |
+| `key` | `app`, `keys`, optional `zoom` | Posts a chord such as `"cmd+shift+v"`, or an array of chords |
+| `hover` | `app`, `ax`, optional `expect` | Cursor travels and dwells, no click |
+| `activate` | `app` | Brings the app to the front |
+| `wait` | `app`, `until`, `timeoutMs` | Waits for an element to appear (`wait` with `ms` is unchanged) |
+
+Every step can still carry `label` and `say`.
+
+A locator (`ax`) takes `identifier`, `role`, `title`, `label` (the AXDescription), `value`, `match` (`exact` or `contains`), `index`, `in` (`app`, `window`, `menubar` or `statusbar`), `path` and `point`. It is resolved in this order: `identifier`, then `role` with `title`, `label` or `value`, then `path`, then `point`. `point` is a window-relative position and the last resort: validation warns when it is used, because it breaks when the window moves or the app updates.
+
+Two optional top-level fields describe the stage. `apps` lists the apps to launch before recording: `{ "bundleId", "frame", "args" }`. `capture` is `"auto"`, `"window"`, `"screen"` or `{ "region": { "x", "y", "width", "height" } }`. A region must be 16:9. `region` capture needs engine 0.2.0 or later.
+
+`keys` accepts only fixed key names (letters, digits, `return`, `tab`, `space`, `escape`, the arrows, `f1` to `f12`, and a few punctuation names), and a printable key needs `cmd`, `ctrl` or `opt` with it. Free text, and so any secret, cannot go through `keys`: use `type`. A secret reaches a field only through `textFrom.keychain`; literal text into a secure field is refused, and typed text is never logged.
+
+A worked example (the bundle id is made up):
+
+```json
+{
+  "apps": [{ "bundleId": "com.example.farol", "frame": { "x": 0, "y": 25, "width": 1600, "height": 900 } }],
+  "capture": "window",
+  "steps": [
+    { "type": "click", "app": "com.example.farol", "ax": { "role": "AXButton", "label": "new task", "match": "contains" } },
+    { "type": "type", "app": "com.example.farol", "text": "echo hello" },
+    { "type": "key", "app": "com.example.farol", "keys": "return", "zoom": { "role": "AXOutline" } },
+    { "type": "hover", "app": "com.example.farol", "ax": { "value": "waiting", "match": "contains" }, "say": "One agent is [[waiting]]" }
+  ]
+}
+```
+
+Native mode needs two permissions, both granted to the terminal app you run Director from:
+
+| Permission | Why | Where |
+|---|---|---|
+| Accessibility | Reading apps and posting keys and clicks | System Settings, Privacy & Security, Accessibility |
+| Screen Recording | Capturing the film | System Settings, Privacy & Security, Screen Recording |
+
+Workflow for a new target:
+
+1. `lensmith-director native doctor` checks the helper, both permissions, and whether an app holds secure input. It never triggers a prompt and exits 1 when a required row fails. `--json` prints the engine `doctor` report shape.
+2. `lensmith-director native tree --app com.apple.calculator` launches the app and prints its AX tree, one node per line, such as `[0,2,1] AXButton title="Save" label="" id="save" 812,430 64x24`. Pick locators from it. `--in app|window|menubar|statusbar`, `--depth <n>` and `--json` narrow or reshape it. It only reads; it posts no input and never reads secure-field values.
+3. Write the step list, then run `demo`. Native steps in `demo` are supported on main as far as the drive step goes; capture of a `region` follows with engine 0.2.0 or later.
 
 ## Why the cursor moves the way it does
 
@@ -116,6 +167,8 @@ Grant Accessibility to the terminal app you run it from (System Settings, Privac
 ## Safety
 
 A step list is executable: whoever can supply one, or write into a `worker` queue directory, can make this machine click and type in your signed-in Chrome profile. Run it as a dedicated macOS user with nothing else signed in. What the tool can do, the consent gates, how secrets are handled and what a hostile step list could do are in [SECURITY.md](./SECURITY.md). Contributions: [CONTRIBUTING.md](./CONTRIBUTING.md); the test suite never moves the real cursor.
+
+Native mode takes over keyboard and mouse: run it on a machine nobody is using.
 
 ## In progress
 

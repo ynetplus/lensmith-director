@@ -5,6 +5,7 @@ import { Command } from "commander";
 import { registerCursorCommand } from "./commands/cursor.js";
 import { registerDemoCommand } from "./commands/demo.js";
 import { registerDriveCommand } from "./commands/drive.js";
+import { registerNativeCommand } from "./commands/native.js";
 import { registerWorkerCommand } from "./commands/worker.js";
 
 // Keep in sync with package.json "version" — there is deliberately no runtime
@@ -24,6 +25,7 @@ export function buildProgram(): Command {
 	registerDriveCommand(program);
 	registerDemoCommand(program);
 	registerWorkerCommand(program);
+	registerNativeCommand(program);
 
 	return program;
 }
