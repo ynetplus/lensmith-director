@@ -33,8 +33,7 @@
 open -na "Google Chrome" --args --user-data-dir="$HOME/.lensmith-director/chrome-profile"
 
 # The whole pipeline in one run: record, drive, compose, render.
-# Needs the engine built next door (../lensmith/dist/cli.js)
-# or pointed to with LENSMITH_ENGINE_BIN.
+# The engine is installed with Director.
 lensmith-director demo --steps steps.json --out-dir out
 # -> out/final.mp4, plus raw.mp4, action-log.json, zooms.json,
 #    project.openscreen and demo-manifest.json
@@ -89,7 +88,19 @@ Motion is posted as a stream of events, never a warp, so the app underneath gets
 
 ## Install
 
-Requirements: macOS with Apple's command line tools (`xcode-select --install`), Node.js 18 or newer, Google Chrome, and the [lensmith](https://github.com/ynetplus/lensmith) engine built for `demo` and `worker`.
+Requirements: macOS, Node.js 18 or newer, Google Chrome. `uv` is needed for narrated films, and `ffmpeg` built with libass for burned captions.
+
+```bash
+npm install -g lensmith-director
+npx playwright install chromium
+lensmith-director --help
+```
+
+The engine comes with Director and is found automatically. To also use the `lensmith` command directly, install both: `npm install -g lensmith-director lensmith`.
+
+### From source
+
+For contributors. This path needs Apple's command line tools (`xcode-select --install`) and the [lensmith](https://github.com/ynetplus/lensmith) engine built next door (`../lensmith/dist/cli.js`) or pointed to with `LENSMITH_ENGINE_BIN`.
 
 ```bash
 git clone https://github.com/ynetplus/lensmith-director.git
