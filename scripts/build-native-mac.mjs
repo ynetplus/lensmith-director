@@ -36,6 +36,11 @@ const HELPERS = [
 		name: "lensmith-screen-capture-preflight",
 		source: path.join(root, "src", "native", "screen-capture-preflight", "main.swift"),
 	},
+	{
+		// CR-LENSMITH-A010-3: native-mode Accessibility driver (find/inspect, no input events).
+		name: "lensmith-native-driver",
+		source: path.join(root, "src", "native", "native-driver", "main.swift"),
+	},
 ];
 
 if (process.platform !== "darwin") {
