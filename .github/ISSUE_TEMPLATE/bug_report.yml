@@ -1,0 +1,94 @@
+name: Bug report
+description: Report a reproducible problem with Lensmith Director.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a problem. Please remove credentials, tokens, and other sensitive data from logs before posting.
+
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      description: Which macOS version was running the command?
+      placeholder: macOS 15.6.1
+    validations:
+      required: true
+
+  - type: input
+    id: chip
+    attributes:
+      label: Mac chip
+      description: Which Apple or Intel chip is in the machine?
+      placeholder: Apple M3 Pro
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      description: Paste the output of `node --version`.
+      placeholder: v20.19.0
+    validations:
+      required: true
+
+  - type: input
+    id: director-version
+    attributes:
+      label: Lensmith Director version
+      description: Paste the output of `lensmith-director --version`.
+      placeholder: 0.1.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor-report
+    attributes:
+      label: Native doctor report
+      description: Run `lensmith-director native doctor --json` and paste the result.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command run
+      description: Paste the complete command and relevant step-list or job configuration (with secrets removed).
+      placeholder: lensmith-director drive --steps steps.json --out out
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: List the smallest sequence that reliably shows the problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include a sanitized error message if available.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Additional context
+      description: Add sanitized logs, screenshots, or other context that helps reproduce the problem.

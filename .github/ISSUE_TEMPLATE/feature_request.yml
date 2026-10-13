@@ -1,0 +1,38 @@
+name: Feature request
+description: Suggest an improvement to Lensmith Director.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please describe the user problem first. Requests involving secrets, input delivery, or permissions should also explain the safety and consent impact.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What limitation or workflow problem would this feature address?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior or interface you would like to see.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or alternative designs have you tried?
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add examples, links, or other context. Do not include secrets or personal data.
