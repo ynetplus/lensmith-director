@@ -76,6 +76,23 @@ describe("lensmith-director CLI", () => {
 	});
 
 	describe("cursor", () => {
+		it.runIf(process.platform !== "darwin")(
+			"fails before starting the native helper on non-macOS",
+			() => {
+				for (const args of [
+					["cursor", "position"],
+					["cursor", "move", "100", "200"],
+					["cursor", "click"],
+				]) {
+					const result = runCli(args);
+					expect(result.status).not.toBe(0);
+					expect(result.stderr).toContain(
+						`lensmith-director cursor needs macOS (got ${process.platform})`,
+					);
+				}
+			},
+		);
+
 		it("--help lists position, move and click", () => {
 			const result = runCli(["cursor", "--help"]);
 			expect(result.status).toBe(0);

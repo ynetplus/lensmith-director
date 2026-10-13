@@ -39,12 +39,33 @@ export function parseDurationMs(raw: string): number {
 	return value;
 }
 
+export class MacOSRequiredError extends Error {
+	readonly platform: NodeJS.Platform;
+
+	constructor(platform: NodeJS.Platform) {
+		super(`lensmith-director cursor needs macOS (got ${platform})`);
+		this.name = "MacOSRequiredError";
+		this.platform = platform;
+	}
+}
+
+/** Cursor subcommands use the macOS native helper and must fail before it starts. */
+export function ensureMacOS(platform: NodeJS.Platform = process.platform): void {
+	if (platform !== "darwin") {
+		throw new MacOSRequiredError(platform);
+	}
+}
+
 function formatPoint(point: Point, asJson: boolean): string {
 	return asJson ? JSON.stringify(point) : `x: ${point.x}, y: ${point.y}`;
 }
 
 function reportFailure(error: unknown): never {
-	if (error instanceof NativeHelperMissingError || error instanceof CursorChoreographerError) {
+	if (
+		error instanceof MacOSRequiredError ||
+		error instanceof NativeHelperMissingError ||
+		error instanceof CursorChoreographerError
+	) {
 		console.error(error.message);
 		process.exit(1);
 	}
@@ -65,6 +86,7 @@ export function registerCursorCommand(program: Command): void {
 		.option("--json", "print the position as JSON")
 		.action(async (options: { json?: boolean }) => {
 			try {
+				ensureMacOS();
 				const choreographer = new CursorChoreographer();
 				await choreographer.start();
 				try {
@@ -96,6 +118,7 @@ export function registerCursorCommand(program: Command): void {
 		.option("--json", "print the result as JSON")
 		.action(async (x: number, y: number, options: { durationMs: number; json?: boolean }) => {
 			try {
+				ensureMacOS();
 				console.error(EXCLUSIVE_MACHINE_NOTICE);
 				const choreographer = new CursorChoreographer();
 				await choreographer.start();
@@ -125,6 +148,7 @@ export function registerCursorCommand(program: Command): void {
 		.option("--json", "print the result as JSON")
 		.action(async (options: { json?: boolean }) => {
 			try {
+				ensureMacOS();
 				console.error(EXCLUSIVE_MACHINE_NOTICE);
 				const choreographer = new CursorChoreographer();
 				await choreographer.start();
