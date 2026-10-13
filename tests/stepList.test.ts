@@ -10,6 +10,7 @@ import {
 	parseWebKeys,
 	readDriveStepList,
 	readStepList,
+	resolveShots,
 	StepListError,
 	stepListWarnings,
 	validateDriveStepList,
@@ -894,5 +895,170 @@ describe("CR-LENSMITH-A011-5 web right-click and web key", () => {
 		const m = message(() => validateDriveStepList({ steps: [{ type: "key", keys: "return" }] }));
 		expect(m).toContain("index 0");
 		expect(m).toContain('"url"');
+	});
+});
+
+describe("CR-LENSMITH-A011-9 shot grammar", () => {
+	/** A ten-step narrated web list in the shape of a real pilot film (one wait, eight actions, one payoff wait). */
+	const pilot = (): { url: string; steps: Record<string, unknown>[] } => ({
+		url: "http://127.0.0.1:4224/",
+		steps: [
+			{ type: "wait", ms: 400, say: "About twenty-five megabytes." },
+			{
+				type: "click",
+				selector: 'button:has-text("Demo Postgres")',
+				say: "Open [[postgres]] Postgres.",
+			},
+			{ type: "type", selector: ".cm-line", text: "SELECT 1", say: "[[type]] Type a query." },
+			{ type: "key", keys: "cmd+enter", selector: ".cm-line", say: "[[run]] Run it." },
+			{ type: "click", selector: 'span:text-is("Demo Redis")', say: "Now [[redis]] Redis." },
+			{ type: "click", selector: 'span:text-is("Demo Postgres")', say: "[[one]] One more thing." },
+			{
+				type: "click",
+				selector: 'span:text-is("demo_shop")',
+				button: "right",
+				say: "[[right]] Right-click.",
+			},
+			{
+				type: "click",
+				selector: "text=Structure tools >> nth=0",
+				say: "[[structure]] Structure tools,",
+			},
+			{ type: "click", selector: "text=View Diagram >> nth=0", say: "then [[view]] View Diagram." },
+			{
+				type: "wait",
+				ms: 1200,
+				say: "Every table, every relationship, drawn in one click. Twenty-five megabytes, no Java, no bundled browser. That is DBX.",
+			},
+		],
+	});
+
+	it("accepts each of the five shot names", () => {
+		for (const shot of ["wide", "close", "follow", "hold", "reveal"]) {
+			const list = validateDriveStepList({
+				url: "http://x/",
+				steps: [{ type: "click", selector: "#a", shot }],
+			});
+			expect(list.steps[0]?.shot).toBe(shot);
+		}
+	});
+
+	it('refuses shot "zoom" naming the five shots and the grammar', () => {
+		expect(() =>
+			validateDriveStepList({
+				url: "http://x/",
+				steps: [{ type: "click", selector: "#a", shot: "zoom" }],
+			}),
+		).toThrow(
+			'step at index 0 (type "click") has an unknown "shot" (got "zoom") — expected one of wide, close, follow, hold, reveal (the Lensmith shot grammar)',
+		);
+	});
+
+	it("refuses an unknown shot on a native step too", () => {
+		expect(() =>
+			validateDriveStepList({
+				apps: [{ bundleId: "com.example.app" }],
+				steps: [{ type: "activate", app: "com.example.app", shot: "dolly" }],
+			}),
+		).toThrow(/unknown "shot" \(got "dolly"\)/);
+	});
+
+	it("a say with two marks and no targets is refused", () => {
+		expect(() =>
+			validateDriveStepList({
+				url: "http://x/",
+				steps: [{ type: "wait", ms: 10, say: "[[a]] one [[b]] two" }],
+			}),
+		).toThrow(/2 \[\[mark\]\] tags in "say" — at most one is allowed without "targets"/);
+	});
+
+	it("a say with two marks and a target for each is accepted", () => {
+		const list = validateDriveStepList({
+			url: "http://x/",
+			steps: [
+				{
+					type: "wait",
+					ms: 10,
+					shot: "wide",
+					say: "[[a]] one [[b]] two",
+					targets: { a: "#a", b: "#b" },
+				},
+			],
+		});
+		expect(list.steps[0]).toMatchObject({ shot: "wide", targets: { a: "#a", b: "#b" } });
+	});
+
+	it("a mark without a target is refused naming the mark", () => {
+		expect(() =>
+			validateDriveStepList({
+				url: "http://x/",
+				steps: [{ type: "wait", ms: 10, say: "[[a]] one [[b]] two", targets: { a: "#a" } }],
+			}),
+		).toThrow('step at index 0 (type "wait") marks [[b]] in "say" but "targets" has no "b"');
+	});
+
+	it("a target without a mark is refused naming the target", () => {
+		expect(() =>
+			validateDriveStepList({
+				url: "http://x/",
+				steps: [{ type: "wait", ms: 10, say: "[[a]] one", targets: { a: "#a", c: "#c" } }],
+			}),
+		).toThrow('step at index 0 (type "wait") has "targets.c" but "say" has no [[c]] mark');
+	});
+
+	it("a single-mark say without targets is unchanged", () => {
+		const list = validateDriveStepList({
+			url: "http://x/",
+			steps: [{ type: "click", selector: "#a", say: "[[a]] here" }],
+		});
+		expect(list.steps[0]).toEqual({ type: "click", selector: "#a", say: "[[a]] here" });
+	});
+
+	it("targets on a native step are refused (web selectors only in v1)", () => {
+		expect(() =>
+			validateDriveStepList({
+				apps: [{ bundleId: "com.example.app" }],
+				steps: [{ type: "activate", app: "com.example.app", say: "[[a]] x", targets: { a: "#a" } }],
+			}),
+		).toThrow(/targets are web selectors in v1/);
+	});
+
+	it("resolveShots: the pilot list resolves by the default rule (opening narrated wait wide, eight close, payoff hold)", () => {
+		const shots = resolveShots(validateDriveStepList(pilot()));
+		expect(shots).toEqual([
+			"wide",
+			"close",
+			"close",
+			"close",
+			"close",
+			"close",
+			"close",
+			"close",
+			"close",
+			"hold",
+		]);
+	});
+
+	it("resolveShots: the payoff rewritten as wide with three targets resolves to wide", () => {
+		const list = pilot();
+		list.steps[9] = {
+			type: "wait",
+			ms: 1200,
+			shot: "wide",
+			say: "Every [[t1]] table, every [[t2]] relationship, drawn in one [[t3]] click. Twenty-five megabytes, no Java, no bundled browser. That is DBX.",
+			targets: { t1: "#categories", t2: "#orders", t3: "#products" },
+		};
+		const shots = resolveShots(validateDriveStepList(list));
+		expect(shots[9]).toBe("wide");
+	});
+
+	it("resolveShots: an explicit shot always wins over the default rule", () => {
+		const shots = resolveShots(
+			validateDriveStepList({
+				url: "http://x/",
+				steps: [{ type: "click", selector: "#a", shot: "follow" }],
+			}),
+		);
+		expect(shots).toEqual(["follow"]);
 	});
 });

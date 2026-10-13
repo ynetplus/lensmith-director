@@ -659,4 +659,22 @@ describe("continuous narration wiring (CR-LENSMITH-A011-6)", () => {
 			true,
 		);
 	});
+
+	it("CR-LENSMITH-A011-9: a region a wide step closed is not stretched to the film end", () => {
+		const log = [
+			{ index: 2, type: "click", startedAtMs: 1000, clickedAtMs: 2400 },
+		] as unknown as ActionLogEntry[];
+		const region = {
+			id: "zoom-2",
+			startMs: 1000,
+			endMs: 3000,
+			focus: { cx: 0.5, cy: 0.5 },
+			connect: false,
+			depth: 3,
+			customScale: 1.8,
+			source: "auto" as const,
+		};
+		const out = continuousZoomFragment({ zoomRegions: [region] }, log, 9000, { "zoom-2": 3000 });
+		expect(out.zoomRegions.map((r) => [r.startMs, r.endMs])).toEqual([[1000, 3000]]);
+	});
 });

@@ -10,7 +10,28 @@
  * index — never a raw stack trace, never a partially-driven run.
  */
 
-export interface ClickStep {
+/**
+ * CR-LENSMITH-A011-9: the shot grammar v1 — the five named shots a step may carry. The Director turns
+ * the name into camera (and, later, cursor) behaviour; an author never writes zoom numbers.
+ */
+export const SHOT_NAMES = ["wide", "close", "follow", "hold", "reveal"] as const;
+export type ShotName = (typeof SHOT_NAMES)[number];
+
+/** CR-LENSMITH-A011-9: fields every step may carry for the shot grammar. */
+interface ShotFields {
+	/** The named shot; omitted, {@link resolveShots} picks one by the default rule. */
+	shot?: ShotName;
+}
+
+/**
+ * CR-LENSMITH-A011-9: web steps only — maps each `[[mark]]` id in `say` to the CSS selector the
+ * cursor points at when that mark is spoken (`wide`, `follow`, `reveal`).
+ */
+interface TargetFields extends ShotFields {
+	targets?: Record<string, string>;
+}
+
+export interface ClickStep extends TargetFields {
 	type: "click";
 	selector: string;
 	label?: string;
@@ -39,7 +60,7 @@ export interface ClickStep {
  * focused page. Same chord grammar as a native `key` ({@link parseKeys}), plus `enter` as a web
  * name for `return`; `fn` has no web equivalent. `selector`, when given, is focused first.
  */
-export interface WebKeyStep {
+export interface WebKeyStep extends TargetFields {
 	type: "key";
 	keys: string | string[];
 	selector?: string;
@@ -50,7 +71,7 @@ export interface WebKeyStep {
 	say?: string;
 }
 
-export interface WaitStep {
+export interface WaitStep extends TargetFields {
 	type: "wait";
 	ms: number;
 	/** See {@link ClickStep.say}. A wait step has no click: a mark, if present, is not used. */
@@ -64,7 +85,7 @@ export interface WaitStep {
  * action-log entry nor `zoomEmission.ts`'s fragment ever records it (see
  * `actionLog.ts`'s `ActionLogTypeEntry`).
  */
-export interface TypeStepLiteral {
+export interface TypeStepLiteral extends TargetFields {
 	type: "type";
 	selector: string;
 	text: string;
@@ -82,7 +103,7 @@ export interface TypeStepLiteral {
  * into a step-list file. Resolution happens at drive time only
  * (`keychainText.ts`); this module never executes anything.
  */
-export interface TypeStepFromKeychain {
+export interface TypeStepFromKeychain extends TargetFields {
 	type: "type";
 	selector: string;
 	textFrom: { keychain: { service: string; account: string } };
@@ -115,6 +136,10 @@ export interface StepList {
 }
 
 export class StepListError extends Error {}
+
+function hasTargets(raw: unknown): boolean {
+	return (raw as { targets?: unknown }).targets !== undefined;
+}
 
 function stepLabel(index: number): string {
 	return `step at index ${index}`;
@@ -157,15 +182,32 @@ export function sayMark(say: string): string | undefined {
  * CR-LENSMITH-A008-2: `say` is optional; when present it is a non-empty string with at most
  * one `[[mark]]`, whose name matches {@link SAY_MARK_NAME}.
  */
-function validateOptionalSay(value: unknown, label: string, stepType: string): string | undefined {
+function validateOptionalSay(
+	value: unknown,
+	label: string,
+	stepType: string,
+	hasTargets = false,
+): string | undefined {
 	if (value === undefined) return undefined;
 	if (typeof value !== "string" || value.trim().length === 0) {
 		throw new StepListError(`${label} (type "${stepType}") has a non-string or empty "say"`);
 	}
 	const marks = [...value.matchAll(SAY_TAG)].map((m) => m[1] as string);
+	if (hasTargets) {
+		// CR-LENSMITH-A011-9: with `targets`, a line may carry several marks; each name is checked.
+		for (const name of marks) {
+			if (!SAY_MARK_NAME.test(name)) {
+				throw new StepListError(
+					`${label} (type "${stepType}") has an invalid [[mark]] name in "say" ` +
+						`(got ${JSON.stringify(name)}; allowed: letters, digits and "_")`,
+				);
+			}
+		}
+		return value;
+	}
 	if (marks.length > 1) {
 		throw new StepListError(
-			`${label} (type "${stepType}") has ${marks.length} [[mark]] tags in "say" — at most one is allowed`,
+			`${label} (type "${stepType}") has ${marks.length} [[mark]] tags in "say" — at most one is allowed without "targets"`,
 		);
 	}
 	const [mark] = marks;
@@ -178,7 +220,91 @@ function validateOptionalSay(value: unknown, label: string, stepType: string): s
 	return value;
 }
 
+/** Every `[[mark]]` name in a validated `say` line, in order. */
+export function sayMarks(say: string): string[] {
+	return [...say.matchAll(SAY_TAG)].map((m) => m[1] as string);
+}
+
+/** CR-LENSMITH-A011-9: refuses a `shot` outside the shot grammar, before anything launches. */
+function validateOptionalShot(
+	value: unknown,
+	label: string,
+	stepType: string,
+): ShotName | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "string" || !(SHOT_NAMES as readonly string[]).includes(value)) {
+		throw new StepListError(
+			`${label} (type "${stepType}") has an unknown "shot" (got ${JSON.stringify(value)}) — ` +
+				`expected one of ${SHOT_NAMES.join(", ")} (the Lensmith shot grammar)`,
+		);
+	}
+	return value as ShotName;
+}
+
+/**
+ * CR-LENSMITH-A011-9: `targets` maps each `[[mark]]` in `say` to a CSS selector; every mark needs a
+ * target and every target a mark.
+ */
+function validateOptionalTargets(
+	value: unknown,
+	say: string | undefined,
+	label: string,
+	stepType: string,
+): Record<string, string> | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		throw new StepListError(`${label} (type "${stepType}") has a non-object "targets"`);
+	}
+	const entries = Object.entries(value as Record<string, unknown>);
+	if (entries.length === 0) {
+		throw new StepListError(`${label} (type "${stepType}") has an empty "targets"`);
+	}
+	const targets: Record<string, string> = {};
+	for (const [markId, selector] of entries) {
+		if (typeof selector !== "string" || selector.length === 0) {
+			throw new StepListError(
+				`${label} (type "${stepType}") has a missing or empty selector for "targets.${markId}"`,
+			);
+		}
+		targets[markId] = selector;
+	}
+	const marks = say === undefined ? [] : sayMarks(say);
+	for (const mark of marks) {
+		if (targets[mark] === undefined) {
+			throw new StepListError(
+				`${label} (type "${stepType}") marks [[${mark}]] in "say" but "targets" has no "${mark}"`,
+			);
+		}
+	}
+	for (const markId of Object.keys(targets)) {
+		if (!marks.includes(markId)) {
+			throw new StepListError(
+				`${label} (type "${stepType}") has "targets.${markId}" but "say" has no [[${markId}]] mark`,
+			);
+		}
+	}
+	return targets;
+}
+
+/** CR-LENSMITH-A011-9: copies a validated `shot` and `targets` onto a web step. */
+function withShotAndTargets<T extends Step>(
+	step: T,
+	raw: Record<string, unknown>,
+	label: string,
+): T {
+	const shot = validateOptionalShot(raw.shot, label, step.type);
+	const targets = validateOptionalTargets(raw.targets, step.say, label, step.type);
+	if (shot !== undefined) step.shot = shot;
+	if (targets !== undefined) step.targets = targets;
+	return step;
+}
+
 function validateStep(raw: unknown, index: number): Step {
+	const step = validateStepShape(raw, index);
+	return withShotAndTargets(step, raw as Record<string, unknown>, stepLabel(index));
+}
+
+function validateStepShape(raw: unknown, index: number): Step {
 	const label = stepLabel(index);
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
 		throw new StepListError(`${label} is not an object`);
@@ -212,7 +338,7 @@ function validateStep(raw: unknown, index: number): Step {
 			throw new StepListError(`${label} (type "click") has a non-string "label"`);
 		}
 		const validatedTimeoutMs = validateOptionalTimeoutMs(timeoutMs, label, "click");
-		const validatedSay = validateOptionalSay(say, label, "click");
+		const validatedSay = validateOptionalSay(say, label, "click", hasTargets(raw));
 		const step: ClickStep = { type: "click", selector };
 		if (typeof stepDisplayLabel === "string") step.label = stepDisplayLabel;
 		if (validatedTimeoutMs !== undefined) step.timeoutMs = validatedTimeoutMs;
@@ -232,7 +358,7 @@ function validateStep(raw: unknown, index: number): Step {
 				`${label} (type "wait") has a missing or non-positive "ms" (got ${JSON.stringify(ms)})`,
 			);
 		}
-		const validatedSay = validateOptionalSay(say, label, "wait");
+		const validatedSay = validateOptionalSay(say, label, "wait", hasTargets(raw));
 		const step: WaitStep = { type: "wait", ms: ms as number };
 		if (validatedSay !== undefined) step.say = validatedSay;
 		return step;
@@ -261,7 +387,7 @@ function validateStep(raw: unknown, index: number): Step {
 			throw new StepListError(`${label} (type "type") has a non-string "label"`);
 		}
 		const validatedTimeoutMs = validateOptionalTimeoutMs(timeoutMs, label, "type");
-		const validatedSay = validateOptionalSay(say, label, "type");
+		const validatedSay = validateOptionalSay(say, label, "type", hasTargets(raw));
 
 		const hasText = text !== undefined;
 		const hasTextFrom = textFrom !== undefined;
@@ -363,7 +489,7 @@ function validateWebKeyStep(raw: Record<string, unknown>, label: string): WebKey
 		throw new StepListError(`${label} (type "key") has a non-string "label"`);
 	}
 	const timeoutMs = validateOptionalTimeoutMs(raw.timeoutMs, label, "key");
-	const say = validateOptionalSay(raw.say, label, "key");
+	const say = validateOptionalSay(raw.say, label, "key", hasTargets(raw));
 	const keys = Array.isArray(raw.keys) ? [...(raw.keys as string[])] : (raw.keys as string);
 	const step: WebKeyStep = { type: "key", keys };
 	if (typeof selector === "string") step.selector = selector;
@@ -441,7 +567,7 @@ export interface AxLocator {
 	point?: { x: number; y: number };
 }
 
-export interface NativeClickStep {
+export interface NativeClickStep extends ShotFields {
 	type: "click";
 	app: string;
 	ax: AxLocator;
@@ -451,7 +577,7 @@ export interface NativeClickStep {
 	timeoutMs?: number;
 }
 
-export interface NativeHoverStep {
+export interface NativeHoverStep extends ShotFields {
 	type: "hover";
 	app: string;
 	ax: AxLocator;
@@ -461,7 +587,7 @@ export interface NativeHoverStep {
 	timeoutMs?: number;
 }
 
-interface NativeTypeStepBase {
+interface NativeTypeStepBase extends ShotFields {
 	type: "type";
 	app: string;
 	/** Clicked to focus before typing, when given. */
@@ -481,7 +607,7 @@ export interface NativeTypeStepFromKeychain extends NativeTypeStepBase {
 
 export type NativeTypeStep = NativeTypeStepLiteral | NativeTypeStepFromKeychain;
 
-export interface KeyStep {
+export interface KeyStep extends ShotFields {
 	type: "key";
 	app: string;
 	/** `"cmd+shift+v"` or an array of such chords; see {@link parseKeys}. */
@@ -493,14 +619,14 @@ export interface KeyStep {
 	timeoutMs?: number;
 }
 
-export interface ActivateStep {
+export interface ActivateStep extends ShotFields {
 	type: "activate";
 	app: string;
 	label?: string;
 	say?: string;
 }
 
-export interface NativeWaitStep {
+export interface NativeWaitStep extends ShotFields {
 	type: "wait";
 	app: string;
 	until: AxLocator;
@@ -759,6 +885,24 @@ function validateNativeStep(
 			`${label} (type "${typeName}") has both "app" and "selector" — they are exclusive`,
 		);
 	}
+	if (raw.targets !== undefined) {
+		throw new StepListError(
+			`${label} (type "${typeName}") has "targets" — targets are web selectors in v1 (native steps cannot use them)`,
+		);
+	}
+	const step = validateNativeStepShape(raw, label, typeName, app);
+	const shot = validateOptionalShot(raw.shot, label, typeName);
+	if (shot !== undefined) step.shot = shot;
+	return step;
+}
+
+function validateNativeStepShape(
+	raw: Record<string, unknown>,
+	label: string,
+	typeName: string,
+	app: string,
+): NativeStep {
+	const { type } = raw;
 	const displayLabel = validateOptionalDisplayLabel(raw.label, label, typeName);
 	const say = validateOptionalSay(raw.say, label, typeName);
 
@@ -1038,4 +1182,30 @@ export function stepListWarnings(list: DriveStepList): string[] {
 		}
 	});
 	return warnings;
+}
+
+/** CR-LENSMITH-A011-9: the step types that act on the page or app (the default rule's "action"). */
+const ACTION_TYPES = new Set(["click", "type", "key", "hover"]);
+
+/**
+ * CR-LENSMITH-A011-9: one shot per step, by the shot grammar's default rule. An explicit `shot`
+ * always wins. Otherwise: a step with an action (`click`, `type`, `key`, `hover`) is `close`; the
+ * last narrated step that only shows is `hold` (unless it names `targets`); any other step that only
+ * shows (a narrated `wait`, or one with `targets`) is `wide`; a silent step that only shows is
+ * `hold` (the camera keeps whatever it was doing). Pure.
+ */
+export function resolveShots(stepList: { steps: readonly DriveStep[] }): ShotName[] {
+	const { steps } = stepList;
+	let lastNarrated = -1;
+	steps.forEach((step, index) => {
+		if (step.say !== undefined) lastNarrated = index;
+	});
+	return steps.map((step, index): ShotName => {
+		if (step.shot !== undefined) return step.shot;
+		if (ACTION_TYPES.has(step.type)) return "close";
+		const targets = (step as { targets?: unknown }).targets;
+		if (index === lastNarrated && targets === undefined) return "hold";
+		if (step.say !== undefined || targets !== undefined) return "wide";
+		return "hold";
+	});
 }

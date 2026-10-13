@@ -277,7 +277,9 @@ describe("runDemo", () => {
 		expect(composeCall).toBeDefined();
 		const zoomsPath = argAfter(composeCall?.args ?? [], "--zooms");
 		const fragment = JSON.parse(readFileSync(zoomsPath, "utf-8"));
-		expect(fragment.zoomRegions).toHaveLength(2);
+		// CR-LENSMITH-A011-9: the two fake clicks sit 30 px apart (same spot, 100 ms apart), so the
+		// shot grammar's same-spot rule films them as ONE region (no zoom-out and back in).
+		expect(fragment.zoomRegions).toHaveLength(1);
 	});
 
 	it("CR-LENSMITH-A011-7: a viewport recording composes with --padding 0; a window recording keeps the default", async () => {

@@ -20,6 +20,7 @@ import type {
 	ActionLogTypeEntry,
 	BoundingBoxLike,
 } from "./actionLog.js";
+import type { ShotName } from "./stepList.js";
 import { SETTLE_PACING } from "./timing.js";
 
 /**
@@ -62,7 +63,20 @@ export interface EmitZoomRegionsResult {
 	fragment: ZoomFragment;
 	/** Non-fatal: e.g. a clamped `focus.cx`/`cy` that landed outside 0..1 before clamping. */
 	warnings: string[];
+	/**
+	 * CR-LENSMITH-A011-9: region id -> the end a `wide` or `reveal` step fixed for it. A later pass
+	 * that stretches regions (continuous narration) must not carry a region past this point.
+	 */
+	closedAtMs: Record<string, number>;
 }
+
+/**
+ * CR-LENSMITH-A011-9: two consecutive `close` targets this near (normalised, on both axes) share
+ * one region when the second would start within {@link SAME_SPOT_MAX_GAP_MS} of the first's end:
+ * the camera stays put instead of zooming out and back in on the same place.
+ */
+export const SAME_SPOT_MAX_DISTANCE = 0.12;
+export const SAME_SPOT_MAX_GAP_MS = 1500;
 
 /** Zoom depth the engine's `suggest-zooms` emits for every region. */
 const ZOOM_DEPTH = 3;
@@ -159,6 +173,20 @@ function fitsInZoomedFrame(
 	);
 }
 
+/** When an entry began: its travel start, or the moment it was logged. */
+function entryStartMs(entry: ActionLogEntry): number {
+	return "startedAtMs" in entry ? entry.startedAtMs : entry.atMs;
+}
+
+/** When an entry's on-screen result is over: a zoomable entry's region end, a wait's last ms. */
+function entryEndMs(entry: ActionLogEntry): number {
+	if (isZoomableEntry(entry)) {
+		return zoomEndMs(entry) + entry.settleMs + SETTLE_PACING.resultHoldMs;
+	}
+	if (entry.type === "wait") return entry.atMs + entry.ms;
+	return entryStartMs(entry);
+}
+
 /**
  * One region per `click`, `type`, `hover` or zoomed `key` entry in the action log. `wait` entries
  * are ignored — they never appear as choreographed moves and have no
@@ -168,42 +196,91 @@ function fitsInZoomedFrame(
  * `settleMs` + the result hold. `connect` marks back-to-back targets that share
  * a zoomed frame. After a non-connected region a zoom-in is never scheduled
  * within `zoomMinGapAfterOutMs` of that zoom-out's end: it is shifted later.
+ *
+ * CR-LENSMITH-A011-9: `shots` (one per step, from `resolveShots`, read by each entry's `index`;
+ * omitted = every entry is `close`) applies the shot grammar: `wide` emits nothing and ends an open
+ * region at the entry's start; `hold` emits nothing and extends the open region to the entry's end;
+ * `follow` connects to the previous region; `reveal` ends the open region at the entry's line start;
+ * a `close` on the same spot as the previous `close` region, starting within
+ * {@link SAME_SPOT_MAX_GAP_MS} of its end, extends that region instead of opening a new one.
  */
 export function emitZoomRegions(
 	actionLog: ActionLogEntry[],
 	viewport: ViewportSize,
+	shots?: readonly ShotName[],
 ): EmitZoomRegionsResult {
 	const warnings: string[] = [];
-	const entries = actionLog.filter(isZoomableEntry);
 	const zoomRegions: ZoomRegion[] = [];
+	const closedAtMs: Record<string, number> = {};
+	let last: ZoomRegion | undefined;
+	let lastShot: ShotName | undefined;
+	let lastClosed = false;
 
-	for (const [i, entry] of entries.entries()) {
+	for (const entry of actionLog) {
+		const shot: ShotName = shots?.[entry.index] ?? "close";
+
+		if (shot === "wide" || shot === "reveal") {
+			if (last && !lastClosed) {
+				const voiceStart = (entry as { voiceStartMs?: number }).voiceStartMs;
+				const at = logMsToFilmMs(
+					shot === "reveal" && voiceStart !== undefined ? voiceStart : entryStartMs(entry),
+				);
+				last.endMs = Math.max(last.startMs, at);
+				last.connect = false;
+				closedAtMs[last.id] = last.endMs;
+				lastClosed = true;
+			}
+			continue;
+		}
+		if (shot === "hold") {
+			if (last && !lastClosed) last.endMs = Math.max(last.endMs, logMsToFilmMs(entryEndMs(entry)));
+			continue;
+		}
+		if (!isZoomableEntry(entry)) continue;
+
 		const centerX = entry.boundingBox.x + entry.boundingBox.width / 2;
 		const centerY = entry.boundingBox.y + entry.boundingBox.height / 2;
 		const cx = clampUnit(centerX / viewport.width, `focus.cx for step ${entry.index}`, warnings);
 		const cy = clampUnit(centerY / viewport.height, `focus.cy for step ${entry.index}`, warnings);
 		const focus = { cx, cy };
+		const endMs = zoomEndMs(entry) + entry.settleMs + SETTLE_PACING.resultHoldMs;
 
 		let startMs = logMsToFilmMs(zoomStartMs(entry));
-		const previous = zoomRegions[zoomRegions.length - 1];
-		if (previous && !previous.connect) {
-			const earliest =
-				previous.endMs + SETTLE_PACING.zoomOutMs + SETTLE_PACING.zoomMinGapAfterOutMs;
+		const open = last && !lastClosed ? last : undefined;
+		if (
+			open &&
+			shot === "close" &&
+			lastShot === "close" &&
+			Math.abs(focus.cx - open.focus.cx) <= SAME_SPOT_MAX_DISTANCE &&
+			Math.abs(focus.cy - open.focus.cy) <= SAME_SPOT_MAX_DISTANCE &&
+			startMs - open.endMs <= SAME_SPOT_MAX_GAP_MS
+		) {
+			open.endMs = Math.max(open.endMs, endMs);
+			continue;
+		}
+		if (open) {
+			open.connect =
+				shot === "follow" || fitsInZoomedFrame(entry.boundingBox, open.focus, viewport);
+		}
+		if (last && !last.connect) {
+			const earliest = last.endMs + SETTLE_PACING.zoomOutMs + SETTLE_PACING.zoomMinGapAfterOutMs;
 			startMs = Math.max(startMs, earliest);
 		}
 
-		const next = entries[i + 1];
-		zoomRegions.push({
+		last = {
 			id: `zoom-${entry.index}`,
 			startMs,
-			endMs: zoomEndMs(entry) + entry.settleMs + SETTLE_PACING.resultHoldMs,
+			endMs,
 			focus,
-			connect: next ? fitsInZoomedFrame(next.boundingBox, focus, viewport) : false,
+			connect: false,
 			depth: ZOOM_DEPTH,
 			customScale: SETTLE_PACING.zoomScale,
 			source: "auto",
-		});
+		};
+		zoomRegions.push(last);
+		lastShot = shot;
+		lastClosed = false;
 	}
 
-	return { fragment: { zoomRegions }, warnings };
+	return { fragment: { zoomRegions }, warnings, closedAtMs };
 }

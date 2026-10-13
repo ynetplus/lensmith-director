@@ -362,3 +362,213 @@ describe("emitZoomRegions — native hover and key (CR-LENSMITH-A010-8)", () => 
 		);
 	});
 });
+
+describe("CR-LENSMITH-A011-9 shot grammar in emitZoomRegions", () => {
+	const hold = SETTLE_PACING.resultHoldMs;
+	const waitEntry = (
+		index: number,
+		atMs: number,
+		ms: number,
+		voiceStartMs?: number,
+	): ActionLogEntry => ({
+		index,
+		type: "wait",
+		atMs,
+		ms,
+		...(voiceStartMs === undefined ? {} : { voiceStartMs }),
+	});
+
+	it("two consecutive close steps on the same spot share ONE region (no bounce)", () => {
+		const log = [
+			clickEntry({ index: 0, startedAtMs: 1000, clickedAtMs: 1400, settleMs: 400 }),
+			clickEntry({
+				index: 1,
+				startedAtMs: 3500,
+				clickedAtMs: 3900,
+				settleMs: 300,
+				boundingBox: { x: 150, y: 60, width: 40, height: 20 },
+			}),
+		];
+		const { fragment } = emitZoomRegions(log, VIEWPORT, ["close", "close"]);
+		expect(fragment.zoomRegions).toHaveLength(1);
+		expect(fragment.zoomRegions[0]).toMatchObject({
+			id: "zoom-0",
+			startMs: 1000,
+			endMs: 3900 + 300 + hold,
+		});
+	});
+
+	it("same spot but starting more than 1500 ms after the previous end keeps two regions", () => {
+		const log = [
+			clickEntry({ index: 0, startedAtMs: 1000, clickedAtMs: 1400, settleMs: 400 }),
+			clickEntry({
+				index: 1,
+				startedAtMs: 1400 + 400 + hold + 1501,
+				clickedAtMs: 6000,
+				settleMs: 0,
+			}),
+		];
+		expect(emitZoomRegions(log, VIEWPORT, ["close", "close"]).fragment.zoomRegions).toHaveLength(2);
+	});
+
+	it("follow connects to the previous region even when the target is outside its frame", () => {
+		const far = { x: 900, y: 450, width: 40, height: 20 };
+		const log = [
+			clickEntry({ index: 0 }),
+			clickEntry({ index: 1, startedAtMs: 3000, clickedAtMs: 3400, boundingBox: far }),
+		];
+		expect(
+			emitZoomRegions(log, VIEWPORT, ["close", "close"]).fragment.zoomRegions[0]?.connect,
+		).toBe(false);
+		const followed = emitZoomRegions(log, VIEWPORT, ["close", "follow"]).fragment.zoomRegions;
+		expect(followed).toHaveLength(2);
+		expect(followed[0]?.connect).toBe(true);
+		expect(followed[1]?.startMs).toBe(3000);
+	});
+
+	it("wide emits no region, ends the open region at its start, and records the close for later passes", () => {
+		const log = [clickEntry({ index: 0 }), waitEntry(1, 2000, 5000, 1900)];
+		const result = emitZoomRegions(log, VIEWPORT, ["close", "wide"]);
+		expect(result.fragment.zoomRegions).toHaveLength(1);
+		expect(result.fragment.zoomRegions[0]).toMatchObject({ endMs: 2000, connect: false });
+		expect(result.closedAtMs).toEqual({ "zoom-0": 2000 });
+	});
+
+	it("a close step marked wide emits no region of its own", () => {
+		const log = [clickEntry({ index: 0 })];
+		expect(emitZoomRegions(log, VIEWPORT, ["wide"]).fragment.zoomRegions).toEqual([]);
+	});
+
+	it("hold moves the previous region's end to the hold's end", () => {
+		const log = [clickEntry({ index: 0 }), waitEntry(1, 2000, 9000)];
+		const { fragment } = emitZoomRegions(log, VIEWPORT, ["close", "hold"]);
+		expect(fragment.zoomRegions).toHaveLength(1);
+		expect(fragment.zoomRegions[0]?.endMs).toBe(11000);
+	});
+
+	it("reveal ends the open region at the entry's line start and adds nothing", () => {
+		const log = [clickEntry({ index: 0 }), waitEntry(1, 2600, 4000, 2100)];
+		const result = emitZoomRegions(log, VIEWPORT, ["close", "reveal"]);
+		expect(result.fragment.zoomRegions).toHaveLength(1);
+		expect(result.fragment.zoomRegions[0]?.endMs).toBe(2100);
+		expect(result.closedAtMs).toEqual({ "zoom-0": 2100 });
+	});
+
+	it("without shots every entry is close: distinct spots keep today's regions", () => {
+		const log = [
+			clickEntry({ index: 0 }),
+			clickEntry({
+				index: 1,
+				startedAtMs: 3000,
+				clickedAtMs: 3400,
+				boundingBox: { x: 800, y: 400, width: 40, height: 20 },
+			}),
+		];
+		const regions = emitZoomRegions(log, VIEWPORT).fragment.zoomRegions;
+		expect(regions.map((r) => r.id)).toEqual(["zoom-0", "zoom-1"]);
+	});
+
+	/** The recorded action log of a real 1920x1080 pilot run (times in ms, boxes in CSS px). */
+	const PILOT_LOG: ActionLogEntry[] = [
+		waitEntry(0, 32, 400, 0),
+		clickEntry({
+			index: 1,
+			startedAtMs: 10168,
+			clickedAtMs: 11603,
+			settleMs: 621,
+			boundingBox: { x: 611, y: 355, width: 564.4, height: 61 },
+		}),
+		typeEntry({
+			index: 2,
+			startedAtMs: 13852,
+			endedAtMs: 18523,
+			settleMs: 393,
+			boundingBox: { x: 288, y: 112, width: 21.06, height: 20.8 },
+		}),
+		{
+			index: 3,
+			type: "key",
+			keys: ["cmd+return"],
+			atMs: 23539,
+			settleMs: 421,
+			boundingBox: { x: 288, y: 112, width: 21.06, height: 20.8 },
+		},
+		clickEntry({
+			index: 4,
+			startedAtMs: 27566,
+			clickedAtMs: 28980,
+			settleMs: 332,
+			boundingBox: { x: 50, y: 141, width: 178, height: 21 },
+		}),
+		clickEntry({
+			index: 5,
+			startedAtMs: 31153,
+			clickedAtMs: 32568,
+			settleMs: 338,
+			boundingBox: { x: 50, y: 112, width: 164, height: 21 },
+		}),
+		clickEntry({
+			index: 6,
+			startedAtMs: 32934,
+			clickedAtMs: 34355,
+			settleMs: 303,
+			boundingBox: { x: 66, y: 141, width: 75.6, height: 21 },
+		}),
+		clickEntry({
+			index: 7,
+			startedAtMs: 34682,
+			clickedAtMs: 36097,
+			settleMs: 302,
+			boundingBox: { x: 139, y: 288, width: 135.77, height: 16 },
+		}),
+		clickEntry({
+			index: 8,
+			startedAtMs: 36436,
+			clickedAtMs: 37852,
+			settleMs: 538,
+			boundingBox: { x: 346.77, y: 292, width: 176, height: 16 },
+		}),
+		waitEntry(9, 38390, 1200, 37817),
+	];
+	const PILOT_VIEWPORT = { width: 1920, height: 1080 };
+	const PILOT_SHOTS = [
+		"wide",
+		"close",
+		"close",
+		"close",
+		"close",
+		"close",
+		"close",
+		"close",
+		"close",
+		"hold",
+	] as const;
+
+	it("pilot list: no two consecutive regions on the same spot, and steps 6 to 8 are one connected sequence", () => {
+		const regions = emitZoomRegions(PILOT_LOG, PILOT_VIEWPORT, PILOT_SHOTS).fragment.zoomRegions;
+		for (let i = 1; i < regions.length; i++) {
+			const a = regions[i - 1] as (typeof regions)[number];
+			const b = regions[i] as (typeof regions)[number];
+			const sameSpot =
+				Math.abs(a.focus.cx - b.focus.cx) <= 0.12 && Math.abs(a.focus.cy - b.focus.cy) <= 0.12;
+			const gap = b.startMs - a.endMs;
+			expect(sameSpot && gap <= 1500 && !a.connect).toBe(false);
+		}
+		expect(regions.map((r) => r.id)).toEqual(["zoom-1", "zoom-2", "zoom-3", "zoom-4", "zoom-7"]);
+		const r4 = regions.find((r) => r.id === "zoom-4");
+		expect(r4?.connect).toBe(true);
+		// step 9 is a hold: the last region lasts to the end of the payoff wait
+		expect(regions.at(-1)?.endMs).toBe(38390 + 1200);
+	});
+
+	it("pilot list with the payoff as wide: the last region ends where the payoff starts", () => {
+		const shots = [...PILOT_SHOTS.slice(0, 9), "wide"] as const;
+		const result = emitZoomRegions(PILOT_LOG, PILOT_VIEWPORT, shots);
+		expect(result.fragment.zoomRegions.at(-1)).toMatchObject({
+			id: "zoom-7",
+			endMs: 38390,
+			connect: false,
+		});
+		expect(result.closedAtMs).toEqual({ "zoom-7": 38390 });
+	});
+});
