@@ -66,6 +66,7 @@ import {
 	type ContinuousLine,
 	type ContinuousPlan,
 	distancePx,
+	LATE_ACTION_MAX_MS,
 	pauseBeforeNextStepMs,
 	planContinuousNarration,
 	SETTLE_PACING,
@@ -1852,8 +1853,16 @@ async function runSteps(
 						? (clickAtMs ?? planned.lineStartMs)
 						: (planned.travelStartMs ?? planned.lineStartMs);
 			const behindMs = now() - t0 - (plannedAtMs + driftMs);
-			if (behindMs > 0) driftMs += behindMs;
-			else await sleep(-behindMs);
+			// BF-26: the voice keeps the plan clock. A narrated web wait has no cursor work to wait for,
+			// so a late loop never moves its line. A step with an action absorbs the lateness into its
+			// click, up to the allowance its plan left (Settle LOCK v1.2); only the excess is drift.
+			let absorbedMs = 0;
+			if (behindMs <= 0) await sleep(-behindMs);
+			else if (clickAtMs !== undefined) {
+				const allowanceLeftMs = Math.max(0, LATE_ACTION_MAX_MS - (planned.actionLateMs ?? 0));
+				absorbedMs = Math.min(behindMs, allowanceLeftMs);
+				driftMs += behindMs - absorbedMs;
+			} else if (!webWait) driftMs += behindMs;
 			const lineStartMs = planned.lineStartMs + driftMs;
 			if (webWait && "ms" in step) {
 				// A narrated web wait is just its line: the next step waits for its own planned moment.
@@ -1871,7 +1880,7 @@ async function runSteps(
 			// The click functions extend the dwell so the action lands `markMs` after the travel starts:
 			// here that is the planned action time, measured from now (always >= travel + dwell).
 			if (clickAtMs !== undefined && !webKey) {
-				voice = { ...voice, markMs: clickAtMs + driftMs - (now() - t0) };
+				voice = { ...voice, markMs: clickAtMs + driftMs + absorbedMs - (now() - t0) };
 			}
 		}
 
