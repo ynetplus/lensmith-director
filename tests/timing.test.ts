@@ -678,3 +678,66 @@ describe("continuous narration wiring (CR-LENSMITH-A011-6)", () => {
 		expect(out.zoomRegions.map((r) => [r.startMs, r.endMs])).toEqual([[1000, 3000]]);
 	});
 });
+
+describe("shot grammar: `wide` pointing in the continuous plan", () => {
+	const timings: NarrationTimings = {
+		lines: {
+			s0: { durationMs: 2000, marks: { open: 1500 } },
+			s1: { durationMs: 3000, marks: { t1: 500, t2: 1200, t3: 2000 } },
+			s2: { durationMs: 2000, marks: { run: 100 } },
+		},
+	};
+	const list = {
+		steps: [
+			{ type: "click", selector: "#open", say: "Open [[open]] it." },
+			{
+				type: "wait",
+				ms: 1200,
+				shot: "wide",
+				say: "Every [[t1]] table, every [[t2]] relationship, in one [[t3]] click.",
+				targets: { t1: "#categories", t2: "#orders", t3: "#products" },
+			},
+			{ type: "click", selector: "#run", say: "[[run]] Run it." },
+		],
+	} as unknown as DriveStepList;
+
+	it("a `wide` line between two `close` lines plans both boundaries at 300 ms and carries three points", () => {
+		const plan = continuousPlanFor(list, timings);
+		const [s0, s1, s2] = plan.steps;
+		expect(s1?.gapBeforeMs).toBe(300);
+		expect(s2?.gapBeforeMs).toBe(300);
+		expect(s1?.delayMs).toBe(0);
+		expect(s2?.delayMs).toBe(0);
+		expect(s1?.lineStartMs).toBe(2300);
+		expect(s2?.lineStartMs).toBe(2300 + 3000 + 300);
+		// No action, no travel deficit, no lateness on the wide line.
+		expect(s1?.actionMs).toBeUndefined();
+		expect(s1?.travelStartMs).toBeUndefined();
+		expect(s1?.actionLateMs).toBeUndefined();
+		expect(s1?.points).toEqual([
+			{ markId: "t1", atMs: 2800 },
+			{ markId: "t2", atMs: 3500 },
+			{ markId: "t3", atMs: 4300 },
+		]);
+		expect(s0?.points).toBeUndefined();
+		expect(s2?.points).toBeUndefined();
+		expect(s2?.actionLateMs).toBe(0);
+	});
+
+	it("a `hold` line carries no points", () => {
+		const holdList = {
+			steps: [{ ...(list.steps[1] as object), shot: "hold" }],
+		} as unknown as DriveStepList;
+		const plan = continuousPlanFor(holdList, { lines: { s0: timings.lines.s1 as never } });
+		expect(plan.steps[0]?.points).toBeUndefined();
+	});
+
+	it("refuses a point mark the voice line does not have", () => {
+		expect(() =>
+			validateNarration(
+				{ lines: { ...timings.lines, s1: { durationMs: 3000, marks: { t1: 500, t2: 1200 } } } },
+				list as never,
+			),
+		).toThrow(/marks \[\[t3\]\]/);
+	});
+});

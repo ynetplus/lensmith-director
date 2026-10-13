@@ -15,7 +15,7 @@
  * ambiguity.
  */
 
-import type { AxLocator } from "./stepList.js";
+import type { AxLocator, ShotName } from "./stepList.js";
 
 export interface BoundingBoxLike {
 	x: number;
@@ -162,10 +162,31 @@ export interface ActionLogActivateEntry {
 	voiceStartMs?: number;
 }
 
+/**
+ * A `wide`/`reveal` step's pointing, one entry per `[[mark]]` (continuous narration): the cursor
+ * glided to the mark's target at `atMs` and rests there. No click is ever posted. A target that
+ * could not be found at mark time leaves the cursor where it was: `missing: true`, no screen point.
+ */
+export interface ActionLogPointEntry {
+	index: number;
+	type: "point";
+	markId: string;
+	selector: string;
+	/** When the glide to the target began (the mark), relative to `t0`. */
+	atMs: number;
+	screenX?: number;
+	screenY?: number;
+	missing?: true;
+	shot?: ShotName;
+	voiceLineId?: string;
+	voiceStartMs?: number;
+}
+
 export type ActionLogEntry =
 	| ActionLogClickEntry
 	| ActionLogWaitEntry
 	| ActionLogTypeEntry
 	| ActionLogHoverEntry
 	| ActionLogKeyEntry
-	| ActionLogActivateEntry;
+	| ActionLogActivateEntry
+	| ActionLogPointEntry;
