@@ -1842,11 +1842,14 @@ async function runSteps(
 			// and for a web key step (no cursor travel: it presses on the mark).
 			const webKey = step.type === "key" && !isNativeStep(step);
 			const webWait = step.type === "wait" && !isNativeStep(step);
+			// BF-25: the click lands `actionLateMs` after the mark (Settle LOCK v1.2).
+			const clickAtMs =
+				planned.actionMs === undefined ? undefined : planned.actionMs + (planned.actionLateMs ?? 0);
 			const plannedAtMs =
 				step.type === "wait"
 					? planned.lineStartMs
 					: webKey
-						? (planned.actionMs ?? planned.lineStartMs)
+						? (clickAtMs ?? planned.lineStartMs)
 						: (planned.travelStartMs ?? planned.lineStartMs);
 			const behindMs = now() - t0 - (plannedAtMs + driftMs);
 			if (behindMs > 0) driftMs += behindMs;
@@ -1867,8 +1870,8 @@ async function runSteps(
 			}
 			// The click functions extend the dwell so the action lands `markMs` after the travel starts:
 			// here that is the planned action time, measured from now (always >= travel + dwell).
-			if (planned.actionMs !== undefined && !webKey) {
-				voice = { ...voice, markMs: planned.actionMs + driftMs - (now() - t0) };
+			if (clickAtMs !== undefined && !webKey) {
+				voice = { ...voice, markMs: clickAtMs + driftMs - (now() - t0) };
 			}
 		}
 
