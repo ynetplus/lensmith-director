@@ -1,0 +1,170 @@
+[
+	{
+		"index": 0,
+		"type": "wait",
+		"atMs": 32.158292000000074,
+		"ms": 400,
+		"voiceLineId": "s0",
+		"voiceStartMs": 0
+	},
+	{
+		"index": 1,
+		"type": "click",
+		"selector": "button:has-text(\"Demo PostgresPostgreSQL\")",
+		"startedAtMs": 10168.309749999999,
+		"clickedAtMs": 11602.685167000001,
+		"screenX": 893.19921875,
+		"screenY": 502.5,
+		"boundingBox": {
+			"x": 611,
+			"y": 355,
+			"width": 564.3984375,
+			"height": 61
+		},
+		"settleMs": 621,
+		"label": "Open Postgres",
+		"voiceLineId": "s1",
+		"voiceStartMs": 10780
+	},
+	{
+		"index": 2,
+		"type": "type",
+		"selector": ".cm-lineNumbers .cm-gutterElement:text-is(\"1\")",
+		"startedAtMs": 13852.074999999999,
+		"endedAtMs": 18522.557917,
+		"screenX": 298.53125,
+		"screenY": 239.3984375,
+		"boundingBox": {
+			"x": 288,
+			"y": 112,
+			"width": 21.0625,
+			"height": 20.796875
+		},
+		"characterCount": 49,
+		"settleMs": 393,
+		"label": "Type the query",
+		"voiceLineId": "s2",
+		"voiceStartMs": 14855
+	},
+	{
+		"index": 3,
+		"type": "key",
+		"keys": ["cmd+return"],
+		"atMs": 23539.080582999995,
+		"settleMs": 421,
+		"selector": ".cm-lineNumbers .cm-gutterElement:text-is(\"1\")",
+		"boundingBox": {
+			"x": 288,
+			"y": 112,
+			"width": 21.0625,
+			"height": 20.796875
+		},
+		"label": "Run with Cmd+Enter",
+		"voiceLineId": "s3",
+		"voiceStartMs": 23064
+	},
+	{
+		"index": 4,
+		"type": "click",
+		"selector": "span.tree-connection-label:text-is(\"Demo Redis\")",
+		"startedAtMs": 27566.400457999996,
+		"clickedAtMs": 28979.823791999996,
+		"screenX": 139,
+		"screenY": 268.5,
+		"boundingBox": {
+			"x": 50,
+			"y": 141,
+			"width": 178,
+			"height": 21
+		},
+		"settleMs": 332,
+		"label": "Open Redis",
+		"voiceLineId": "s4",
+		"voiceStartMs": 28284
+	},
+	{
+		"index": 5,
+		"type": "click",
+		"selector": "span.tree-connection-label:text-is(\"Demo Postgres\")",
+		"startedAtMs": 31152.764749999995,
+		"clickedAtMs": 32567.754416999996,
+		"screenX": 132,
+		"screenY": 239.5,
+		"boundingBox": {
+			"x": 50,
+			"y": 112,
+			"width": 164,
+			"height": 21
+		},
+		"settleMs": 338,
+		"label": "Expand Postgres",
+		"voiceLineId": "s5",
+		"voiceStartMs": 32113
+	},
+	{
+		"index": 6,
+		"type": "click",
+		"selector": "span.tree-object-label:text-is(\"demo_shop\")",
+		"startedAtMs": 32933.502,
+		"clickedAtMs": 34355.351792,
+		"screenX": 103.80078125,
+		"screenY": 268.5,
+		"boundingBox": {
+			"x": 66,
+			"y": 141,
+			"width": 75.6015625,
+			"height": 21
+		},
+		"settleMs": 303,
+		"label": "Right-click demo_shop",
+		"button": "right",
+		"voiceLineId": "s6",
+		"voiceStartMs": 33253
+	},
+	{
+		"index": 7,
+		"type": "click",
+		"selector": "text=Structure tools >> nth=0",
+		"startedAtMs": 34682.340791999995,
+		"clickedAtMs": 36096.61575,
+		"screenX": 206.88671875,
+		"screenY": 413,
+		"boundingBox": {
+			"x": 139,
+			"y": 288,
+			"width": 135.7734375,
+			"height": 16
+		},
+		"settleMs": 302,
+		"label": "Structure tools",
+		"voiceLineId": "s7",
+		"voiceStartMs": 34976
+	},
+	{
+		"index": 8,
+		"type": "click",
+		"selector": "text=View Diagram >> nth=0",
+		"startedAtMs": 36435.545,
+		"clickedAtMs": 37851.902624999995,
+		"screenX": 434.7734375,
+		"screenY": 417,
+		"boundingBox": {
+			"x": 346.7734375,
+			"y": 292,
+			"width": 176,
+			"height": 16
+		},
+		"settleMs": 538,
+		"label": "View Diagram",
+		"voiceLineId": "s8",
+		"voiceStartMs": 36288
+	},
+	{
+		"index": 9,
+		"type": "wait",
+		"atMs": 38389.64225,
+		"ms": 1200,
+		"voiceLineId": "s9",
+		"voiceStartMs": 37817
+	}
+]

@@ -72,11 +72,10 @@ export interface EmitZoomRegionsResult {
 
 /**
  * CR-LENSMITH-A011-9: two consecutive `close` targets this near (normalised, on both axes) share
- * one region when the second would start within {@link SAME_SPOT_MAX_GAP_MS} of the first's end:
- * the camera stays put instead of zooming out and back in on the same place.
+ * one region, however long apart they are (round 2: no time limit — the voice is continuous, so the
+ * camera has no reason to leave and return to the same spot).
  */
 export const SAME_SPOT_MAX_DISTANCE = 0.12;
-export const SAME_SPOT_MAX_GAP_MS = 1500;
 
 /** Zoom depth the engine's `suggest-zooms` emits for every region. */
 const ZOOM_DEPTH = 3;
@@ -201,8 +200,9 @@ function entryEndMs(entry: ActionLogEntry): number {
  * omitted = every entry is `close`) applies the shot grammar: `wide` emits nothing and ends an open
  * region at the entry's start; `hold` emits nothing and extends the open region to the entry's end;
  * `follow` connects to the previous region; `reveal` ends the open region at the entry's line start;
- * a `close` on the same spot as the previous `close` region, starting within
- * {@link SAME_SPOT_MAX_GAP_MS} of its end, extends that region instead of opening a new one.
+ * a `close` on the same spot as the previous `close` region (within {@link SAME_SPOT_MAX_DISTANCE},
+ * no time limit) extends that region instead of opening a new one; otherwise a `close` whose target
+ * fits inside the open region's zoomed frame connects it (a pan — no zoom-out, and no zoom-in delay).
  */
 export function emitZoomRegions(
 	actionLog: ActionLogEntry[],
@@ -252,8 +252,7 @@ export function emitZoomRegions(
 			shot === "close" &&
 			lastShot === "close" &&
 			Math.abs(focus.cx - open.focus.cx) <= SAME_SPOT_MAX_DISTANCE &&
-			Math.abs(focus.cy - open.focus.cy) <= SAME_SPOT_MAX_DISTANCE &&
-			startMs - open.endMs <= SAME_SPOT_MAX_GAP_MS
+			Math.abs(focus.cy - open.focus.cy) <= SAME_SPOT_MAX_DISTANCE
 		) {
 			open.endMs = Math.max(open.endMs, endMs);
 			continue;
