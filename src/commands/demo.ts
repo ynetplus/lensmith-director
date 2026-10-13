@@ -944,6 +944,30 @@ export interface RunDemoDeps {
 	readyTimeoutMs?: number;
 	stopTimeoutMs?: number;
 	onTerminationSignal?: (callback: (signal: NodeJS.Signals) => void) => () => void;
+	/** BF-27: wall clock (epoch ms) stamped when the recorder reports ready; defaults to `Date.now`. */
+	clock?: () => number;
+}
+
+/** BF-27: a film lead above this is not a navigation time — something is wrong with the clocks. */
+export const MAX_FILM_LEAD_MS = 5_000;
+
+/**
+ * BF-27: how long the recording ran before the action log's `t0` — `t0Epoch` (the driver's wall
+ * clock at `t0`) minus the moment the recorder reported ready. The engine's ready line carries no
+ * timestamp, so the ready moment is this process's wall clock at receipt. A driver that reports no
+ * `t0Epoch` gives lead 0 (the old identity). Throws when the lead is negative or over
+ * {@link MAX_FILM_LEAD_MS}.
+ */
+export function filmLeadMs(recordingStartedAt: number, t0Epoch: number | undefined): number {
+	if (t0Epoch === undefined) return 0;
+	const leadMs = Math.round(t0Epoch - recordingStartedAt);
+	if (leadMs < 0 || leadMs > MAX_FILM_LEAD_MS) {
+		throw new Error(
+			`film lead ${leadMs} ms is outside 0..${MAX_FILM_LEAD_MS} ms (recording ready at ` +
+				`${recordingStartedAt}, t0 at ${t0Epoch}) — the recording and the action log cannot be aligned`,
+		);
+	}
+	return leadMs;
 }
 
 interface ManifestArtifact {
@@ -991,6 +1015,7 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 	const readyTimeoutMs = deps.readyTimeoutMs ?? RECORD_READY_TIMEOUT_MS;
 	const stopTimeoutMs = deps.stopTimeoutMs ?? RECORD_STOP_TIMEOUT_MS;
 	const onTerminationSignal = deps.onTerminationSignal ?? defaultOnTerminationSignal;
+	const clock = deps.clock ?? Date.now;
 
 	// Invariant: "engine binary not resolvable -> immediate clear error, not a
 	// silent empty run." Checked first, before anything else — nothing has
@@ -1097,6 +1122,8 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 	let recorder: SpawnedRecorder | undefined;
 	let recorderStopped = false;
 	let recorderExitCode: number | null = null;
+	/** BF-27: wall clock when the recorder reported ready (the film's 0). */
+	let recordingStartedAt: number | undefined;
 	const ensureRecorderStopped = async (): Promise<number | null> => {
 		if (recorder && !recorderStopped) {
 			recorderStopped = true;
@@ -1140,6 +1167,7 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 				}
 				throw new DemoError("record", messageOf(error));
 			}
+			recordingStartedAt = clock();
 			currentStage = "drive";
 		},
 		async onDriveFinished() {
@@ -1187,10 +1215,21 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 		}
 		const drivenResult = driveResult as RunDriveResult;
 
+		// BF-27: the recording started before t0 (BF-15 ordering) — every log time handed to the film
+		// is shifted by that lead.
+		let leadMs: number;
+		try {
+			leadMs = filmLeadMs(recordingStartedAt ?? clock(), drivenResult.t0Epoch);
+		} catch (error) {
+			throw new DemoError("record", messageOf(error));
+		}
+		console.error(`demo: film lead ${leadMs} ms (recording started before t0)`);
+
 		// CR-LENSMITH-A011-9: the shot grammar decides each step's camera.
 		const shots = resolveShots(driveList);
 		const emitted = emitZoomRegions(drivenResult.actionLog, drivenResult.viewport, shots, {
 			continuous: drivenResult.plan !== undefined,
+			leadMs,
 		});
 		const { warnings } = emitted;
 		// CR-LENSMITH-A011-6: continuous regions end where the next travel starts, zoom-out under voice.
@@ -1200,6 +1239,7 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 					drivenResult.actionLog,
 					drivenResult.plan.endMs,
 					emitted.closedAtMs,
+					leadMs,
 				)
 			: emitted.fragment;
 		for (const warning of warnings) console.error(`demo: warning: ${warning}`);
@@ -1246,11 +1286,17 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 
 		// CR-LENSMITH-A008-6: voice the finished film when narration ran.
 		if (narration !== undefined) {
-			await runVoiceoverStage(drivenResult.actionLog, opts, paths, {
-				spawnFn,
-				nodeBinPath,
-				engineBinPath,
-			});
+			await runVoiceoverStage(
+				drivenResult.actionLog,
+				opts,
+				paths,
+				{
+					spawnFn,
+					nodeBinPath,
+					engineBinPath,
+				},
+				leadMs,
+			);
 		}
 		const voiced = narration !== undefined;
 
@@ -1372,7 +1418,7 @@ async function runNarrateStage(
 
 /**
  * CR-LENSMITH-A008-6: collects `{voiceLineId: voiceStartMs}` from the action log, converts each to
- * film time with {@link logMsToFilmMs} (the same mapping the zoom regions use), writes
+ * film time with {@link logMsToFilmMs} and the film lead (the same mapping the zoom regions use), writes
  * `<out>/voice-starts.json` and runs the engine's
  * `voiceover --video final.mp4 --narration narration/timings.json --starts voice-starts.json
  * --out final-voiced.mp4 [--captions]`. Any failure is a {@link DemoError} for stage "voiceover".
@@ -1383,12 +1429,13 @@ async function runVoiceoverStage(
 	opts: DemoRunOptions,
 	paths: DemoPaths,
 	engine: { spawnFn: typeof spawn; nodeBinPath: string; engineBinPath: string },
+	leadMs = 0,
 ): Promise<void> {
 	try {
 		const starts: Record<string, number> = {};
 		for (const entry of actionLog) {
 			if (entry.voiceLineId !== undefined && entry.voiceStartMs !== undefined) {
-				starts[entry.voiceLineId] = Math.round(logMsToFilmMs(entry.voiceStartMs));
+				starts[entry.voiceLineId] = Math.round(logMsToFilmMs(entry.voiceStartMs, leadMs));
 			}
 		}
 		if (Object.keys(starts).length === 0) {
