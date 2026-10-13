@@ -86,6 +86,33 @@ All of them except `cursor position`, `native doctor` and `native tree` post rea
 
 `lensmith-director <command> --help` prints the live flag list.
 
+## Shots
+
+Every step in a step list is filmed in one of five named shots. Write the name in `"shot"`, or leave it
+out and the default rule picks one; zoom scales and timings are never written into a script.
+
+| Shot | What the viewer sees |
+|---|---|
+| `wide` | the whole page, no zoom |
+| `close` | the step's target, zoomed (the default for `click`, `type` and `key`) |
+| `follow` | stays zoomed and pans from the previous target to this one |
+| `hold` | the camera keeps its current framing; nothing moves |
+| `reveal` | zooms out from the current target to the whole page as the line starts |
+
+Default rule: a step with an action is `close`; the last narrated step that only shows is `hold`;
+any other narrated step that only shows is `wide`. Two `close` steps on the same spot share one zoom,
+so the camera does not zoom out and back in between them. A `wide`, `follow` or `reveal` step may carry
+several `[[mark]]`s in its `say` line when it maps each one to a selector in `"targets"`:
+
+```json
+{ "type": "wait", "ms": 1200, "shot": "wide",
+  "say": "Every [[t1]] table, every [[t2]] relationship.",
+  "targets": { "t1": "#table-a", "t2": "#table-b" } }
+```
+
+An unknown shot name, a mark without a target or a target without a mark is refused before anything
+launches. `targets` are web selectors; native steps cannot use them yet.
+
 ## Native apps (macOS)
 
 `drive` and `demo` can also film an app that is not a web page: Calculator, a menu-bar tool, a terminal app, a Tauri or Electron window. A step that names an `app` (a bundle id) is native and finds its element in the Accessibility (AX) tree. A step with a `selector` is a web step and works as before. `url` is needed only when a list has web steps.

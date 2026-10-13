@@ -56,6 +56,7 @@ import {
 	isNativeStep,
 	parseWebKeys,
 	readDriveStepList,
+	resolveShots,
 	type Step,
 	type StepList,
 	StepListError,
@@ -2022,6 +2023,7 @@ export function continuousZoomFragment(
 	fragment: ZoomFragment,
 	actionLog: readonly ActionLogEntry[],
 	endMs: number,
+	closedAtMs: Readonly<Record<string, number>> = {},
 ): ZoomFragment {
 	const travelStartOf = (region: ZoomRegion): number => {
 		const entry = actionLog.find((e) => `zoom-${e.index}` === region.id);
@@ -2036,7 +2038,14 @@ export function continuousZoomFragment(
 			return {
 				...region,
 				startMs,
-				endMs: Math.max(startMs, nextStartMs ?? logMsToFilmMs(endMs)),
+				// CR-LENSMITH-A011-9: a region a `wide`/`reveal` step closed ends there, not at the next travel.
+				endMs: Math.max(
+					startMs,
+					Math.min(
+						nextStartMs ?? logMsToFilmMs(endMs),
+						closedAtMs[region.id] ?? Number.POSITIVE_INFINITY,
+					),
+				),
 				underVoice: true,
 			};
 		}),
@@ -2204,10 +2213,15 @@ export function registerDriveCommand(program: Command): void {
 									choreographer,
 									narration,
 								});
-								const emitted = emitZoomRegions(actionLog, viewport);
+								const emitted = emitZoomRegions(actionLog, viewport, resolveShots(stepList));
 								const { warnings } = emitted;
 								const fragment = plan
-									? continuousZoomFragment(emitted.fragment, actionLog, plan.endMs)
+									? continuousZoomFragment(
+											emitted.fragment,
+											actionLog,
+											plan.endMs,
+											emitted.closedAtMs,
+										)
 									: emitted.fragment;
 								for (const warning of warnings) console.error(`warning: ${warning}`);
 

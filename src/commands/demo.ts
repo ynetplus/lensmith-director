@@ -66,6 +66,8 @@ import {
 	type DriveStepList,
 	isNativeStep,
 	readDriveStepList,
+	resolveShots,
+	type ShotName,
 	type StepList,
 	stepListWarnings,
 } from "../lib/stepList.js";
@@ -954,6 +956,8 @@ interface ManifestArtifact {
 interface Manifest {
 	generatedAt: string;
 	stepsPath: string;
+	/** CR-LENSMITH-A011-9: the shot each step was filmed in (explicit, or by the default rule). */
+	steps: { index: number; type: string; shot: ShotName }[];
 	artifacts: ManifestArtifact[];
 }
 
@@ -1183,14 +1187,25 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 		}
 		const drivenResult = driveResult as RunDriveResult;
 
-		const emitted = emitZoomRegions(drivenResult.actionLog, drivenResult.viewport);
+		// CR-LENSMITH-A011-9: the shot grammar decides each step's camera.
+		const shots = resolveShots(driveList);
+		const emitted = emitZoomRegions(drivenResult.actionLog, drivenResult.viewport, shots);
 		const { warnings } = emitted;
 		// CR-LENSMITH-A011-6: continuous regions end where the next travel starts, zoom-out under voice.
 		const fragment = drivenResult.plan
-			? continuousZoomFragment(emitted.fragment, drivenResult.actionLog, drivenResult.plan.endMs)
+			? continuousZoomFragment(
+					emitted.fragment,
+					drivenResult.actionLog,
+					drivenResult.plan.endMs,
+					emitted.closedAtMs,
+				)
 			: emitted.fragment;
 		for (const warning of warnings) console.error(`demo: warning: ${warning}`);
-		writeFileSync(paths.actionLog, `${JSON.stringify(drivenResult.actionLog, null, 2)}\n`, "utf-8");
+		const loggedActions = drivenResult.actionLog.map((entry) => ({
+			...entry,
+			shot: shots[entry.index],
+		}));
+		writeFileSync(paths.actionLog, `${JSON.stringify(loggedActions, null, 2)}\n`, "utf-8");
 		writeFileSync(paths.zoomFragment, `${JSON.stringify(fragment, null, 2)}\n`, "utf-8");
 
 		try {
@@ -1266,6 +1281,11 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 		const manifest: Manifest = {
 			generatedAt: new Date().toISOString(),
 			stepsPath: opts.stepsPath,
+			steps: driveList.steps.map((step, index) => ({
+				index,
+				type: step.type,
+				shot: shots[index] as ShotName,
+			})),
 			artifacts,
 		};
 		writeFileSync(paths.manifest, `${JSON.stringify(manifest, null, 2)}\n`, "utf-8");
