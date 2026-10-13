@@ -495,8 +495,8 @@ function webPointTargets(
 export const POINT_LOOKUP_TIMEOUT_MS = 250;
 
 /**
- * The screen point for a `wide`/`reveal` target, computed as a click's would be, read when its mark
- * comes (no scroll: the shot keeps the page still). Undefined when the target is absent, has no
+ * The screen point for a `wide`/`reveal` target, computed as a click's would be, read at the line
+ * start (retried once at its mark when absent then; no scroll: the shot keeps the page still). Undefined when the target is absent, has no
  * box, or sits outside the window: the cursor then stays where it is.
  */
 async function webPointTarget(
@@ -1915,31 +1915,43 @@ async function runSteps(
 			const lineStartMs = planned.lineStartMs + driftMs;
 			const targets = webPointTargets(step, shots[index]);
 			if (webWait && targets !== undefined && planned.points !== undefined) {
-				// Shot grammar `wide`/`reveal`: at each mark the cursor glides to its target and rests
-				// there. No click, no dwell, no drift: pointing never moves a line (BF-26).
+				// Shot grammar `wide`/`reveal`: the cursor ARRIVES on each mark's target as the word is
+				// spoken (round 2) and rests there. No click, no dwell, no drift: pointing never moves a
+				// line (BF-26). Every box is read once, here at the line start; one absent now is retried
+				// once at its own mark.
 				const page = deps.page;
-				for (const point of planned.points) {
-					const waitMs = point.atMs + driftMs - (now() - t0);
-					if (waitMs > 0) await sleep(waitMs);
+				const lookup = (selector: string) =>
+					page ? webPointTarget(page, selector, offset, viewport) : Promise.resolve(undefined);
+				const resolved = await Promise.all(
+					planned.points.map((point) => lookup(targets[point.markId] as string)),
+				);
+				for (const [i, point] of planned.points.entries()) {
 					const selector = targets[point.markId] as string;
+					const markAtMs = point.atMs + driftMs;
+					let target = resolved[i];
+					if (!target) {
+						const waitMs = markAtMs - (now() - t0);
+						if (waitMs > 0) await sleep(waitMs);
+						target = await lookup(selector);
+					}
 					const entry: ActionLogPointEntry = {
 						index,
 						type: "point",
 						markId: point.markId,
 						selector,
-						atMs: now() - t0,
+						atMs: markAtMs,
 						voiceLineId: voice.lineId,
 						voiceStartMs: lineStartMs,
 					};
 					const shot = shots[index];
 					if (shot !== undefined) entry.shot = shot;
-					const target = page && (await webPointTarget(page, selector, offset, viewport));
 					if (target) {
-						const moved = await choreographer.moveTo(
-							target.x,
-							target.y,
-							travelFor(lastPoint, target),
-						);
+						const travel = travelFor(lastPoint, target);
+						const waitMs = markAtMs - travel - (now() - t0);
+						if (waitMs > 0) await sleep(waitMs);
+						entry.travelStartMs = now() - t0;
+						const moved = await choreographer.moveTo(target.x, target.y, travel);
+						entry.arrivedAtMs = now() - t0;
 						lastPoint = moved.to;
 						entry.screenX = moved.to.x;
 						entry.screenY = moved.to.y;
