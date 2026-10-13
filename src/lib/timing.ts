@@ -160,3 +160,115 @@ export function travelMs(distancePt: number): number {
 export function pauseBeforeNextStepMs(connected: boolean): number {
 	return connected ? SETTLE_PACING.breathMs : SETTLE_PACING.zoomOutMs + SETTLE_PACING.breathMs;
 }
+
+/**
+ * Continuous narration (Settle LOCK v1.1, CR-LENSMITH-A011-6): the voice is the clock. Lines
+ * follow each other with at most `maxLineGapMs` of silence, every action lands on its line's
+ * `[[mark]]`, the 800 ms breath is dropped and the zoom-out may run under the voice. Zoom in/out
+ * durations and the Settle curve are unchanged. After the last word the result is held
+ * `finalHoldMs` (the payoff hold), and that is the end of the film.
+ */
+export const CONTINUOUS_NARRATION = {
+	/** Silence between one line's end and the next line's start, unless an action forces more. */
+	maxLineGapMs: 300,
+	/** Held after the last word (payoff), at full zoom. */
+	finalHoldMs: SETTLE_PACING.resultHoldMs,
+	/** Minimum time an action occupies after its click before the next travel can start. */
+	defaultBusyMs: SETTLE_PACING.settleQuietMs,
+} as const;
+
+/** One voice line, from the engine's `timings.json` (`lines.s<index>`). */
+export interface ContinuousLine {
+	durationMs: number;
+	/** The `[[mark]]` time into the line, when the step's `say` carries one. */
+	markMs?: number;
+}
+
+/** The cursor action a step performs; omitted for a step with no cursor action (a wait). */
+export interface ContinuousAction {
+	/** Cursor travel to the target (see {@link travelMs}). */
+	travelMs: number;
+	/** Hold still on the target before the click; default {@link SETTLE_PACING.dwellMs}. */
+	dwellMs?: number;
+	/** How long the action keeps the page busy after the click (typing, settle); default 300. */
+	busyMs?: number;
+}
+
+export interface ContinuousPlanStep {
+	index: number;
+	lineStartMs: number;
+	lineEndMs: number;
+	/** Silence before this line (0 for the first line). */
+	gapBeforeMs: number;
+	/** How much later than `maxLineGapMs` the line starts because the cursor needed the time. */
+	delayMs: number;
+	/** Click time (on the mark, or travel + dwell into the line without a mark); absent without an action. */
+	actionMs?: number;
+	/** When the cursor leaves for the target (= actionMs - travel - dwell); the previous zoom region ends here. */
+	travelStartMs?: number;
+}
+
+export interface ContinuousPlan {
+	steps: ContinuousPlanStep[];
+	/** Last word + the final hold: the film's length. */
+	endMs: number;
+}
+
+/**
+ * Plans a continuously narrated film. Pure. Each line starts `maxLineGapMs` after the previous
+ * one ends, unless its action cannot reach its mark in time: the cursor can leave only after the
+ * previous action is done (click + busy), and needs travel + dwell to arrive; then the line starts
+ * later by exactly that deficit (the line is never cut). An action without a mark clicks travel +
+ * dwell after its line starts.
+ */
+export function planContinuousNarration(
+	lines: readonly ContinuousLine[],
+	actions: readonly (ContinuousAction | undefined)[],
+): ContinuousPlan {
+	if (lines.length !== actions.length) {
+		throw new Error(
+			`planContinuousNarration: ${lines.length} lines but ${actions.length} actions (one per step)`,
+		);
+	}
+	const { maxLineGapMs, finalHoldMs, defaultBusyMs } = CONTINUOUS_NARRATION;
+	const steps: ContinuousPlanStep[] = [];
+	let previousLineEndMs: number | undefined;
+	let cursorFreeAtMs = 0;
+
+	lines.forEach((line, index) => {
+		if (!Number.isFinite(line.durationMs) || line.durationMs <= 0) {
+			throw new Error(`planContinuousNarration: line ${index} needs a positive durationMs`);
+		}
+		if (line.markMs !== undefined && (line.markMs < 0 || line.markMs > line.durationMs)) {
+			throw new Error(`planContinuousNarration: line ${index} has its mark outside the line`);
+		}
+		const action = actions[index];
+		const naturalStartMs = previousLineEndMs === undefined ? 0 : previousLineEndMs + maxLineGapMs;
+		let lineStartMs = naturalStartMs;
+		let leadMs = 0;
+		if (action !== undefined) {
+			leadMs = action.travelMs + (action.dwellMs ?? SETTLE_PACING.dwellMs);
+			const intoLineMs = line.markMs ?? leadMs;
+			// The click sits at lineStart + intoLine; travel starts leadMs earlier, never before the cursor is free.
+			lineStartMs = Math.max(naturalStartMs, cursorFreeAtMs + leadMs - intoLineMs);
+		}
+		const step: ContinuousPlanStep = {
+			index,
+			lineStartMs,
+			lineEndMs: lineStartMs + line.durationMs,
+			gapBeforeMs: previousLineEndMs === undefined ? 0 : lineStartMs - previousLineEndMs,
+			delayMs: lineStartMs - naturalStartMs,
+		};
+		if (action !== undefined) {
+			const actionMs = lineStartMs + (line.markMs ?? leadMs);
+			step.actionMs = actionMs;
+			step.travelStartMs = actionMs - leadMs;
+			cursorFreeAtMs = actionMs + (action.busyMs ?? defaultBusyMs);
+		}
+		steps.push(step);
+		previousLineEndMs = step.lineEndMs;
+	});
+
+	const lastLineEndMs = previousLineEndMs ?? 0;
+	return { steps, endMs: lastLineEndMs + finalHoldMs };
+}

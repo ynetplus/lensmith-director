@@ -61,7 +61,15 @@ import {
 	StepListError,
 	sayMark,
 } from "../lib/stepList.js";
-import { distancePx, pauseBeforeNextStepMs, SETTLE_PACING, travelMs } from "../lib/timing.js";
+import {
+	type ContinuousAction,
+	type ContinuousPlan,
+	distancePx,
+	pauseBeforeNextStepMs,
+	planContinuousNarration,
+	SETTLE_PACING,
+	travelMs,
+} from "../lib/timing.js";
 import { emitZoomRegions, type ViewportSize } from "../lib/zoomEmission.js";
 
 export class DriveError extends Error {}
@@ -355,6 +363,62 @@ function voicePlanFor(
 /** The voice start for a step whose click was posted at `clickedAtMs` (the click sits on the mark). */
 function voiceStartFor(voice: VoicePlan, startedAtMs: number, clickedAtMs: number): number {
 	return voice.markMs === undefined ? startedAtMs : clickedAtMs - voice.markMs;
+}
+
+/**
+ * CR-LENSMITH-A011-6: how narration paces the film. `settle` (default) is the Settle LOCK v1.0
+ * narration stretch; `continuous` (Settle LOCK v1.1) makes the voice the clock.
+ */
+export type NarrationMode = "settle" | "continuous";
+
+/**
+ * Continuous narration refuses a silent step: every step needs a `say` line. Throws
+ * {@link DriveError} naming the first silent step, before anything launches.
+ */
+export function validateContinuousSteps(stepList: { steps: readonly DriveStep[] }): void {
+	stepList.steps.forEach((step, index) => {
+		if (step.say === undefined) {
+			throw new DriveError(
+				`step at index ${index} (type "${step.type}") has no "say" line — continuous narration ` +
+					"refuses silent steps (Settle LOCK v1.1): give every step a line",
+			);
+		}
+	});
+}
+
+/**
+ * The continuous plan for a step list and its voice timings. Travel is planned at the Settle
+ * maximum (the real distance is known only while driving; a shorter travel waits the difference
+ * so the click still lands on the mark). A typed step keeps the cursor busy for its characters.
+ */
+export function continuousPlanFor(
+	stepList: { steps: readonly DriveStep[] },
+	narration: NarrationTimings,
+): ContinuousPlan {
+	validateContinuousSteps(stepList);
+	const lines = stepList.steps.map((step, index) => {
+		const line = narration.lines[narrationLineId(index)];
+		if (!line) {
+			throw new DriveError(
+				`step at index ${index} has a "say" line but no voice line "${narrationLineId(index)}"`,
+			);
+		}
+		const mark = step.say === undefined ? undefined : sayMark(step.say);
+		const markMs = mark === undefined ? undefined : line.marks[mark];
+		return markMs === undefined
+			? { durationMs: line.durationMs }
+			: { durationMs: line.durationMs, markMs };
+	});
+	const actions = stepList.steps.map((step): ContinuousAction | undefined => {
+		if (step.type === "wait") return undefined;
+		const action: ContinuousAction = { travelMs: SETTLE_PACING.travelMaxMs };
+		const text = (step as { text?: unknown }).text;
+		if (step.type === "type" && typeof text === "string") {
+			action.busyMs = text.length * SETTLE_PACING.typeCharDelayMs + SETTLE_PACING.settleQuietMs;
+		}
+		return action;
+	});
+	return planContinuousNarration(lines, actions);
 }
 
 export interface RunDriveResult {

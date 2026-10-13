@@ -1,0 +1,128 @@
+{
+	"_comment": "DBX campaign script 1, version 2 (CR-LENSMITH-A011-1 report) as a continuous-narration step list. Timings are synthetic at about 385 ms per word, in the engine's timings.json shape (lines.s<index>: durationMs + marks); the end card is the engine's bookend, outside the drive.",
+	"url": "http://127.0.0.1:4224/",
+	"narration": "continuous",
+	"steps": [
+		{
+			"type": "wait",
+			"ms": 400,
+			"label": "Hook card",
+			"say": "How big does a database client need to be?"
+		},
+		{
+			"type": "wait",
+			"ms": 400,
+			"label": "Connections page",
+			"say": "DBX says: about twenty-five megabytes. One tool for more than a hundred databases. Here it is, with Postgres, Redis and MongoDB already connected."
+		},
+		{
+			"type": "click",
+			"selector": "button:has-text(\"Demo PostgresPostgreSQL\")",
+			"label": "Open Postgres",
+			"say": "Open [[pg]] Postgres. The sidebar lists every schema and table."
+		},
+		{
+			"type": "type",
+			"selector": ".cm-lineNumbers .cm-gutterElement:text-is(\"1\")",
+			"text": "SELECT name, price FROM products WHERE price > 50",
+			"label": "Type the query",
+			"say": "Type a query. Autocomplete already knows the [[columns]] columns."
+		},
+		{
+			"type": "key",
+			"keys": "cmd+enter",
+			"selector": ".cm-lineNumbers .cm-gutterElement:text-is(\"1\")",
+			"label": "Run with Cmd+Enter",
+			"say": "[[run]] Run it with Command Enter. The grid fills, sortable and editable in place."
+		},
+		{
+			"type": "click",
+			"selector": "span.tree-connection-label:text-is(\"Demo Redis\")",
+			"label": "Open Redis",
+			"say": "Now [[redis]] Redis. Same window, same sidebar, no second app."
+		},
+		{
+			"type": "click",
+			"selector": "span.tree-object-label:text-is(\"demo_shop\")",
+			"button": "right",
+			"label": "Right-click demo_shop",
+			"say": "One more thing. [[right]] Right-click the database."
+		},
+		{
+			"type": "click",
+			"selector": "text=Structure tools >> nth=0",
+			"label": "Structure tools",
+			"say": "[[structure]] Structure tools,"
+		},
+		{
+			"type": "click",
+			"selector": "text=View Diagram >> nth=0",
+			"label": "View Diagram",
+			"say": "then [[view]] View Diagram."
+		},
+		{
+			"type": "wait",
+			"ms": 400,
+			"label": "Payoff on the ER diagram",
+			"say": "Every table, every relationship, drawn in one click. Twenty-five megabytes, no Java, no bundled browser. That is DBX."
+		}
+	],
+	"timings": {
+		"lines": {
+			"s0": {
+				"durationMs": 3500,
+				"marks": {}
+			},
+			"s1": {
+				"durationMs": 9200,
+				"marks": {}
+			},
+			"s2": {
+				"durationMs": 3900,
+				"marks": {
+					"pg": 385
+				}
+			},
+			"s3": {
+				"durationMs": 3500,
+				"marks": {
+					"columns": 2700
+				}
+			},
+			"s4": {
+				"durationMs": 5400,
+				"marks": {
+					"run": 0
+				}
+			},
+			"s5": {
+				"durationMs": 3900,
+				"marks": {
+					"redis": 385
+				}
+			},
+			"s6": {
+				"durationMs": 2400,
+				"marks": {
+					"right": 1155
+				}
+			},
+			"s7": {
+				"durationMs": 800,
+				"marks": {
+					"structure": 0
+				}
+			},
+			"s8": {
+				"durationMs": 1200,
+				"marks": {
+					"view": 385
+				}
+			},
+			"s9": {
+				"durationMs": 7300,
+				"marks": {}
+			}
+		}
+	}
+}
