@@ -84,6 +84,8 @@ All of them except `cursor position`, `native doctor` and `native tree` post rea
 | `native tree` | no | Print an app's Accessibility tree to pick locators. `--app <bundleId>` (required), `--in`, `--depth`, `--json` |
 | `worker` | yes | Watch a job directory and run `demo` for each job file, one at a time. `--jobs`, `--poll` |
 
+The `drive` command writes a complete [`action-log.json` schema](./docs/action-log.md) with one entry per step and timestamps relative to page `load`.
+
 `lensmith-director <command> --help` prints the live flag list.
 
 ## Shots
