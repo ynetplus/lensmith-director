@@ -20,6 +20,7 @@ import {
 	distancePx,
 	EASE_IN_OUT_CUBIC_PEAK_VELOCITY_FACTOR,
 	easeInOutCubic,
+	LATE_ACTION_MAX_MS,
 	MAX_RECOMMENDED_MOVE_DURATION_MS,
 	MIN_PEAK_VELOCITY_PX_PER_SEC,
 	moveTimingWarnings,
@@ -279,7 +280,7 @@ describe("planContinuousNarration (Settle LOCK v1.1, CR-LENSMITH-A011-6)", () =>
 		expect(step?.travelStartMs).toBe(3300 + 2000 - 500 - SETTLE_PACING.dwellMs);
 	});
 
-	it("starts a line later by exactly the travel + dwell deficit when its mark comes too early", () => {
+	it("lands the click late by the travel + dwell deficit, up to 900 ms, and delays the line by the rest", () => {
 		const plan = planContinuousNarration(
 			[{ durationMs: 1000 }, { durationMs: 3000, markMs: 200 }],
 			[undefined, { travelMs: 700 }],
@@ -293,18 +294,69 @@ describe("planContinuousNarration (Settle LOCK v1.1, CR-LENSMITH-A011-6)", () =>
 			],
 			[{ travelMs: 700 }, { travelMs: 700 }],
 		);
-		// Line 0 click at 1900, cursor free at 2200; line 1 click >= 2200 + 1400 = 3600 => start 3500.
+		// Line 0 click at 1900, cursor free at 2200; line 1 click >= 2200 + 1400 = 3600. Natural start 2300,
+		// mark at 2400: deficit 1200 => the click lands 900 late, the line starts 300 later (2600).
 		const second = tight.steps[1];
-		expect(second?.lineStartMs).toBe(3500);
-		expect(second?.delayMs).toBe(3500 - 2300);
-		expect(second?.actionMs).toBe(3600);
-		expect(second?.lineEndMs).toBe(3500 + 3000); // never cut
+		expect(second?.lineStartMs).toBe(2600);
+		expect(second?.delayMs).toBe(300);
+		expect(second?.actionMs).toBe(2700);
+		expect(second?.actionLateMs).toBe(LATE_ACTION_MAX_MS);
+		expect(second?.travelStartMs).toBe(2200);
+		expect(second?.lineEndMs).toBe(2600 + 3000); // never cut
 	});
 
-	it("delays the first line when its mark comes before the cursor can arrive", () => {
+	it("delays the first line only by the deficit beyond the 900 ms lateness allowance", () => {
 		const plan = planContinuousNarration([{ durationMs: 2000, markMs: 300 }], [{ travelMs: 700 }]);
-		expect(plan.steps[0]?.lineStartMs).toBe(LEAD - 300);
+		// Deficit LEAD - 300 = 1100: the click lands 900 late, the line starts 200 later.
+		expect(plan.steps[0]?.lineStartMs).toBe(LEAD - 300 - LATE_ACTION_MAX_MS);
+		expect(plan.steps[0]?.actionLateMs).toBe(LATE_ACTION_MAX_MS);
 		expect(plan.steps[0]?.travelStartMs).toBe(0);
+	});
+
+	describe("late-action allowance (BF-25, Settle LOCK v1.2)", () => {
+		it("a 1500 ms deficit: the click lands 900 ms late and the line waits the other 600", () => {
+			const plan = planContinuousNarration(
+				[
+					{ durationMs: 2000, markMs: 1500 },
+					{ durationMs: 2000, markMs: 100 },
+				],
+				[{ travelMs: 700, busyMs: 1000 }, { travelMs: 700 }],
+			);
+			// Line 0 clicks at 1500, cursor free at 2500; line 1's click needs >= 2500 + 1400 = 3900.
+			// Natural start 2300, mark at 2400 => deficit 1500: 900 late, the line starts 600 later.
+			const second = plan.steps[1];
+			expect(second?.actionLateMs).toBe(900);
+			expect(second?.delayMs).toBe(600);
+			expect(second?.lineStartMs).toBe(2300 + 600);
+			expect(second?.gapBeforeMs).toBe(300 + 600);
+			expect((second?.actionMs ?? 0) + (second?.actionLateMs ?? 0)).toBe(3900);
+			expect(second?.travelStartMs).toBe(2500);
+		});
+
+		it("a deficit within the allowance never delays the line; travel starts when the cursor is free", () => {
+			const plan = planContinuousNarration(
+				[
+					{ durationMs: 2000, markMs: 1900 },
+					{ durationMs: 3000, markMs: 1000 },
+				],
+				[{ travelMs: 700 }, { travelMs: 700 }],
+			);
+			// Free at 2200, click >= 3600; mark at 2300 + 1000 = 3300 => 300 late, no delay.
+			const second = plan.steps[1];
+			expect(second?.delayMs).toBe(0);
+			expect(second?.gapBeforeMs).toBe(300);
+			expect(second?.actionLateMs).toBe(300);
+			expect(second?.travelStartMs).toBe(2200);
+		});
+
+		it("an action on time carries actionLateMs 0", () => {
+			const plan = planContinuousNarration(
+				[{ durationMs: 3000 }, { durationMs: 4000, markMs: 2000 }],
+				[undefined, { travelMs: 700 }],
+			);
+			expect(plan.steps[0]?.actionLateMs).toBeUndefined();
+			expect(plan.steps[1]?.actionLateMs).toBe(0);
+		});
 	});
 
 	it("rejects mismatched inputs and marks outside the line", () => {
@@ -338,21 +390,29 @@ describe("planContinuousNarration (Settle LOCK v1.1, CR-LENSMITH-A011-6)", () =>
 		});
 
 		it("produces the schedule recorded in the forge report", () => {
-			// [line start, gap before, click]. The 3840 ms gap before "Run" is the typing (49 chars x 60 ms)
-			// after the [[columns]] mark: the planner never cuts a line, so the script must move a mark.
-			expect(plan.steps.map((s) => [s.lineStartMs, s.gapBeforeMs, s.actionMs ?? null])).toEqual([
-				[0, 0, null],
-				[3800, 300, null],
-				[13300, 300, 13685],
-				[17500, 300, 20200],
-				[24840, 3840, 24840],
-				[30540, 300, 30925],
-				[34740, 300, 35895],
-				[37595, 455, 37595],
-				[38910, 515, 39295],
-				[40410, 300, null],
+			// [line start, gap before, mark, lateness]. The 2940 ms gap before "Run" is the typing (49 chars
+			// x 60 ms) after the [[columns]] mark, less the 900 ms lateness allowance (BF-25): the planner
+			// never cuts a line, so the script must move a mark.
+			expect(
+				plan.steps.map((s) => [
+					s.lineStartMs,
+					s.gapBeforeMs,
+					s.actionMs ?? null,
+					s.actionLateMs ?? null,
+				]),
+			).toEqual([
+				[0, 0, null, null],
+				[3800, 300, null, null],
+				[13300, 300, 13685, 0],
+				[17500, 300, 20200, 0],
+				[23940, 2940, 23940, 900],
+				[29640, 300, 30025, 0],
+				[33840, 300, 34995, 0],
+				[36540, 300, 36540, 155],
+				[37640, 300, 38025, 370],
+				[39140, 300, null, null],
 			]);
-			expect(plan.endMs).toBe(40410 + 7300 + CONTINUOUS_NARRATION.finalHoldMs);
+			expect(plan.endMs).toBe(39140 + 7300 + CONTINUOUS_NARRATION.finalHoldMs);
 		});
 	});
 
@@ -389,22 +449,23 @@ describe("planContinuousNarration (Settle LOCK v1.1, CR-LENSMITH-A011-6)", () =>
 				],
 				[{ travelMs: 700 }, { travelMs: 700 }],
 			);
-			// Natural start: 1350 + 300 - 400 = 1250. Cursor free at 1900 + 300; click >= 2200 + 1400 = 3600
-			// => start 3600 - 500 = 3100, delay 1850, speech gap 3100 + 400 - 1350.
+			// Natural start: 1350 + 300 - 400 = 1250. Cursor free at 1900 + 300; click >= 2200 + 1400 = 3600;
+			// mark at 1250 + 500 = 1750 => deficit 1850: 900 late, the line starts 950 later (2200).
 			const second = plan.steps[1];
-			expect(second?.lineStartMs).toBe(3100);
-			expect(second?.delayMs).toBe(3100 - 1250);
-			expect(second?.gapBeforeMs).toBe(3100 + 400 - 1350);
-			expect(second?.actionMs).toBe(3100 + 500);
+			expect(second?.lineStartMs).toBe(2200);
+			expect(second?.delayMs).toBe(2200 - 1250);
+			expect(second?.gapBeforeMs).toBe(2200 + 400 - 1350);
+			expect(second?.actionMs).toBe(2200 + 500);
+			expect(second?.actionLateMs).toBe(900);
 		});
 
-		it("falls back to the whole file when a line has no bounds: byte for byte the pre-BF-23 plan", () => {
+		it("falls back to the whole file when a line has no bounds: byte for byte the recorded plan", () => {
 			const fixture = JSON.parse(
 				readFileSync(new URL("./fixtures/dbx-v2-continuous.json", import.meta.url), "utf-8"),
 			) as { steps: []; timings: NarrationTimings };
-			// Recorded from origin/main fd088d2 before the change.
+			// Recorded at BF-25 (the pre-BF-23 fd088d2 plan plus the lateness allowance: lines 4, 7, 8).
 			expect(JSON.stringify(continuousPlanFor(fixture, fixture.timings))).toBe(
-				'{"steps":[{"index":0,"lineStartMs":0,"lineEndMs":3500,"gapBeforeMs":0,"delayMs":0},{"index":1,"lineStartMs":3800,"lineEndMs":13000,"gapBeforeMs":300,"delayMs":0},{"index":2,"lineStartMs":13300,"lineEndMs":17200,"gapBeforeMs":300,"delayMs":0,"actionMs":13685,"travelStartMs":12285},{"index":3,"lineStartMs":17500,"lineEndMs":21000,"gapBeforeMs":300,"delayMs":0,"actionMs":20200,"travelStartMs":18800},{"index":4,"lineStartMs":24840,"lineEndMs":30240,"gapBeforeMs":3840,"delayMs":3540,"actionMs":24840,"travelStartMs":23440},{"index":5,"lineStartMs":30540,"lineEndMs":34440,"gapBeforeMs":300,"delayMs":0,"actionMs":30925,"travelStartMs":29525},{"index":6,"lineStartMs":34740,"lineEndMs":37140,"gapBeforeMs":300,"delayMs":0,"actionMs":35895,"travelStartMs":34495},{"index":7,"lineStartMs":37595,"lineEndMs":38395,"gapBeforeMs":455,"delayMs":155,"actionMs":37595,"travelStartMs":36195},{"index":8,"lineStartMs":38910,"lineEndMs":40110,"gapBeforeMs":515,"delayMs":215,"actionMs":39295,"travelStartMs":37895},{"index":9,"lineStartMs":40410,"lineEndMs":47710,"gapBeforeMs":300,"delayMs":0}],"endMs":48910}',
+				'{"steps":[{"index":0,"lineStartMs":0,"lineEndMs":3500,"gapBeforeMs":0,"delayMs":0},{"index":1,"lineStartMs":3800,"lineEndMs":13000,"gapBeforeMs":300,"delayMs":0},{"index":2,"lineStartMs":13300,"lineEndMs":17200,"gapBeforeMs":300,"delayMs":0,"actionMs":13685,"actionLateMs":0,"travelStartMs":12285},{"index":3,"lineStartMs":17500,"lineEndMs":21000,"gapBeforeMs":300,"delayMs":0,"actionMs":20200,"actionLateMs":0,"travelStartMs":18800},{"index":4,"lineStartMs":23940,"lineEndMs":29340,"gapBeforeMs":2940,"delayMs":2640,"actionMs":23940,"actionLateMs":900,"travelStartMs":23440},{"index":5,"lineStartMs":29640,"lineEndMs":33540,"gapBeforeMs":300,"delayMs":0,"actionMs":30025,"actionLateMs":0,"travelStartMs":28625},{"index":6,"lineStartMs":33840,"lineEndMs":36240,"gapBeforeMs":300,"delayMs":0,"actionMs":34995,"actionLateMs":0,"travelStartMs":33595},{"index":7,"lineStartMs":36540,"lineEndMs":37340,"gapBeforeMs":300,"delayMs":0,"actionMs":36540,"actionLateMs":155,"travelStartMs":35295},{"index":8,"lineStartMs":37640,"lineEndMs":38840,"gapBeforeMs":300,"delayMs":0,"actionMs":38025,"actionLateMs":370,"travelStartMs":36995},{"index":9,"lineStartMs":39140,"lineEndMs":46440,"gapBeforeMs":300,"delayMs":0}],"endMs":47640}',
 			);
 		});
 
@@ -457,8 +518,9 @@ describe("planContinuousNarration (Settle LOCK v1.1, CR-LENSMITH-A011-6)", () =>
 				i === 0 ? 0 : s.lineStartMs + starts[i]! - (plan.steps[i - 1]!.lineStartMs + ends[i - 1]!),
 			);
 			expect(speechGaps).toEqual(plan.steps.map((s) => s.gapBeforeMs));
-			// 300 everywhere except s6..s8, where the click before (cursor busy + 700 travel + 700 dwell)
-			// leaves the cursor too little time to reach the early mark: the line waits, never cut.
+			// BF-25: all nine boundaries at 300. On s6..s8 the click before (cursor busy + 700 travel + 700
+			// dwell) leaves the cursor too little time to reach the early mark, so the click lands late
+			// (s6 [[right]] 535, s7 [[structure]] 562, s8 [[view]] 712 ms, each <= 900) and no line waits.
 			expect(plan.steps.map((s) => [s.lineStartMs, s.gapBeforeMs, s.delayMs])).toEqual([
 				[0, 0, 0],
 				[10781, 300, 0],
@@ -466,11 +528,26 @@ describe("planContinuousNarration (Settle LOCK v1.1, CR-LENSMITH-A011-6)", () =>
 				[23065, 300, 0],
 				[28285, 300, 0],
 				[32113, 300, 0],
-				[33788, 835, 535],
-				[35538, 327, 27],
-				[37001, 450, 150],
-				[38493, 300, 0],
+				[33253, 300, 0],
+				[34976, 300, 0],
+				[36289, 300, 0],
+				[37781, 300, 0],
 			]);
+			expect(plan.steps.slice(1).every((s) => s.gapBeforeMs === 300)).toBe(true);
+			expect(plan.steps.map((s) => s.actionLateMs ?? null)).toEqual([
+				null,
+				0,
+				0,
+				0,
+				0,
+				0,
+				535,
+				562,
+				712,
+				null,
+			]);
+			for (const s of plan.steps)
+				expect(s.actionLateMs ?? 0).toBeLessThanOrEqual(LATE_ACTION_MAX_MS);
 		});
 
 		it("validates the bounds in timings.json: both or neither, integers, inside the line", () => {

@@ -2491,6 +2491,37 @@ describe("runDrive: say lines timed to the voice (CR-LENSMITH-A008-2)", () => {
 		expect(entry.clickedAtMs).toBe(entry.startedAtMs + 2000);
 	});
 
+	it("continuous mode (BF-25): a click the cursor cannot reach in time lands at mark + actionLateMs", async () => {
+		const { state, deps } = harness();
+		const { actionLog, plan } = await runDriveReal(
+			stepList([
+				{ type: "click", selector: "#a", say: "Open the [[story]] story" },
+				{ type: "click", selector: "#b", say: "[[then]] Then this." },
+			]),
+			{
+				...deps,
+				narrationMode: "continuous",
+				narration: timings({
+					s0: { durationMs: 2000, marks: { story: 1500 } },
+					s1: { durationMs: 2000, marks: { then: 100 } },
+				}),
+			},
+		);
+		// Plan: s0 clicks at 1500, cursor free at 1800; s1's click needs >= 1800 + 700 + 700 = 3200,
+		// but its mark is at 2300 + 100 = 2400: the click lands 800 ms late and the line is not delayed.
+		const planned = plan?.steps[1];
+		expect(planned?.actionLateMs).toBe(800);
+		expect(planned?.delayMs).toBe(0);
+		expect(planned?.gapBeforeMs).toBe(300);
+		const second = actionLog[1];
+		if (second?.type !== "click") throw new Error("expected a click entry");
+		// The fake settle (450 ms) outlasts the planned busy (300): the run drifts 150 ms, voice and
+		// click together. Measured against its own voice start the click is on mark + lateness.
+		expect(second.clickedAtMs - (second.voiceStartMs ?? Number.NaN)).toBe(100 + 800);
+		expect(second.clickedAtMs).toBe((planned?.actionMs ?? 0) + 800 + 150);
+		expect(state.clicksAt).toHaveLength(2);
+	});
+
 	it("the result hold lasts until max(settle + 1200, voice end + 600), then the normal pause", async () => {
 		const { state, deps } = harness();
 		const { actionLog } = await runDriveReal(

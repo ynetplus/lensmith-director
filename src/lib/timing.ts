@@ -180,6 +180,13 @@ export const CONTINUOUS_NARRATION = {
 	defaultBusyMs: SETTLE_PACING.settleQuietMs,
 } as const;
 
+/**
+ * Settle LOCK v1.2 (BF-25), continuous mode only: an action may land up to this long after its
+ * `[[mark]]` when the cursor cannot travel and dwell to the target in time, so the voice does not
+ * wait for the cursor. Only a deficit beyond this delays the line, by the remainder.
+ */
+export const LATE_ACTION_MAX_MS = 900;
+
 /** One voice line, from the engine's `timings.json` (`lines.s<index>`). */
 export interface ContinuousLine {
 	durationMs: number;
@@ -211,9 +218,14 @@ export interface ContinuousPlanStep {
 	gapBeforeMs: number;
 	/** How much later than `maxLineGapMs` the line starts because the cursor needed the time. */
 	delayMs: number;
-	/** Click time (on the mark, or travel + dwell into the line without a mark); absent without an action. */
+	/** The mark's time (or travel + dwell into the line without a mark); absent without an action. */
 	actionMs?: number;
-	/** When the cursor leaves for the target (= actionMs - travel - dwell); the previous zoom region ends here. */
+	/**
+	 * BF-25: how long after `actionMs` the click lands (0 when on time, at most
+	 * {@link LATE_ACTION_MAX_MS}); the click is at `actionMs + actionLateMs`. Absent without an action.
+	 */
+	actionLateMs?: number;
+	/** When the cursor leaves for the target (= click - travel - dwell); the previous zoom region ends here. */
 	travelStartMs?: number;
 }
 
@@ -227,9 +239,10 @@ export interface ContinuousPlan {
  * Plans a continuously narrated film. Pure. Each line's first word comes `maxLineGapMs` after the
  * previous line's last word (BF-23: speech bounds, falling back to the whole file when a line has
  * none), unless its action cannot reach its mark in time: the cursor can leave only after the
- * previous action is done (click + busy), and needs travel + dwell to arrive; then the line starts
- * later by exactly that deficit (the line is never cut). An action without a mark clicks travel +
- * dwell after its line starts.
+ * previous action is done (click + busy), and needs travel + dwell to arrive. BF-25: the action
+ * then lands late by the deficit, up to {@link LATE_ACTION_MAX_MS}, and only the remainder delays
+ * the line (the line is never cut). An action without a mark clicks travel + dwell after its line
+ * starts.
  */
 export function planContinuousNarration(
 	lines: readonly ContinuousLine[],
@@ -265,11 +278,17 @@ export function planContinuousNarration(
 			previousSpeechEndMs === undefined ? 0 : previousSpeechEndMs + maxLineGapMs - speechStartMs;
 		let lineStartMs = naturalStartMs;
 		let leadMs = 0;
+		let actionLateMs = 0;
 		if (action !== undefined) {
 			leadMs = action.travelMs + (action.dwellMs ?? SETTLE_PACING.dwellMs);
 			const intoLineMs = line.markMs ?? leadMs;
-			// The click sits at lineStart + intoLine; travel starts leadMs earlier, never before the cursor is free.
-			lineStartMs = Math.max(naturalStartMs, cursorFreeAtMs + leadMs - intoLineMs);
+			// The mark sits at lineStart + intoLine; travel needs leadMs and starts no earlier than the
+			// cursor is free. A deficit lands the click late, up to the allowance; the rest delays the line.
+			const deficitMs = cursorFreeAtMs + leadMs - (naturalStartMs + intoLineMs);
+			if (deficitMs > 0) {
+				actionLateMs = Math.min(deficitMs, LATE_ACTION_MAX_MS);
+				lineStartMs = naturalStartMs + deficitMs - actionLateMs;
+			}
 		}
 		const step: ContinuousPlanStep = {
 			index,
@@ -281,9 +300,11 @@ export function planContinuousNarration(
 		};
 		if (action !== undefined) {
 			const actionMs = lineStartMs + (line.markMs ?? leadMs);
+			const clickMs = actionMs + actionLateMs;
 			step.actionMs = actionMs;
-			step.travelStartMs = actionMs - leadMs;
-			cursorFreeAtMs = actionMs + (action.busyMs ?? defaultBusyMs);
+			step.actionLateMs = actionLateMs;
+			step.travelStartMs = clickMs - leadMs;
+			cursorFreeAtMs = clickMs + (action.busyMs ?? defaultBusyMs);
 		}
 		steps.push(step);
 		previousLineEndMs = step.lineEndMs;
