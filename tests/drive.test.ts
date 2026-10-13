@@ -2919,3 +2919,204 @@ describe("runDrive: web right-click and web key (CR-LENSMITH-A011-5)", () => {
 		expect(playwrightChord({ key: "delete", mods: [] })).toBe("Backspace");
 	});
 });
+
+describe("runDrive: the cursor points in `wide`, rests in `hold` (shot grammar)", () => {
+	const boxes = {
+		"#open": { x: 100, y: 100, width: 100, height: 40 }, // centre 150,120
+		"#categories": { x: 300, y: 300, width: 100, height: 100 }, // centre 350,350
+		"#orders": { x: 700, y: 300, width: 100, height: 100 }, // centre 750,350
+		"#products": { x: 500, y: 600, width: 100, height: 100 }, // centre 550,650
+	};
+	const say = "Every [[t1]] table, every [[t2]] relationship, in one [[t3]] click.";
+	const targets = { t1: "#categories", t2: "#orders", t3: "#products" };
+
+	/** Virtual clock: travel, dwell, sleeps and a 300 ms settle advance it. The real cursor is never touched. */
+	function harness(elements: Record<string, BoundingBoxLike> = boxes) {
+		const state = {
+			clock: 0,
+			moves: [] as { atMs: number; x: number; y: number; durationMs: number | undefined }[],
+			clicks: 0,
+		};
+		const base = fakePage({
+			elements,
+			viewport: { width: 1280, height: 800 },
+			windowOffset: { x: 0, y: 0 },
+		});
+		const page: PageLike = {
+			...base,
+			async evaluate<T, Arg>(fn: (arg: Arg) => T, arg: Arg): Promise<T> {
+				if (arg && typeof arg === "object" && "quietMs" in arg) state.clock += 300;
+				return base.evaluate(fn, arg);
+			},
+		};
+		const inner = fakeChoreographer();
+		const choreographer: ChoreographerLike = {
+			...inner,
+			async moveTo(x, y, durationMs) {
+				state.moves.push({ atMs: state.clock, x, y, durationMs });
+				state.clock += durationMs ?? 0;
+				return inner.moveTo(x, y, durationMs);
+			},
+			async dwell(ms) {
+				state.clock += ms ?? 0;
+			},
+			async click() {
+				state.clicks += 1;
+				return inner.click();
+			},
+		};
+		const deps = {
+			page,
+			choreographer,
+			now: () => state.clock,
+			sleep: async (ms: number) => {
+				state.clock += ms;
+			},
+		};
+		return { state, deps };
+	}
+
+	const narration = {
+		lines: {
+			s0: { durationMs: 3000, marks: { t1: 500, t2: 1200, t3: 2000 } },
+		},
+	};
+
+	it("`wide` with three marks: three moveTo at the marks' times in target order, zero clicks, voiceStartMs on plan", async () => {
+		const { state, deps } = harness();
+		const { actionLog, plan } = await runDriveReal(
+			stepList([{ type: "wait", ms: 1200, shot: "wide", say, targets } as never]),
+			{ ...deps, narrationMode: "continuous", narration },
+		);
+		expect(state.clicks).toBe(0);
+		expect(state.moves.map((m) => m.atMs)).toEqual([500, 1200, 2000]);
+		expect(state.moves.map((m) => [m.x, m.y])).toEqual([
+			[350, 350],
+			[750, 350],
+			[550, 650],
+		]);
+		// Travel by distance from the cursor's last point (the first has no origin: the maximum).
+		expect(state.moves.map((m) => m.durationMs)).toEqual([
+			700,
+			460,
+			300 + 0.4 * Math.hypot(200, 300),
+		]);
+		expect(plan?.steps[0]?.points?.map((p) => p.atMs)).toEqual([500, 1200, 2000]);
+		expect(actionLog).toEqual([
+			{
+				index: 0,
+				type: "point",
+				markId: "t1",
+				selector: "#categories",
+				atMs: 500,
+				screenX: 350,
+				screenY: 350,
+				shot: "wide",
+				voiceLineId: "s0",
+				voiceStartMs: 0,
+			},
+			{
+				index: 0,
+				type: "point",
+				markId: "t2",
+				selector: "#orders",
+				atMs: 1200,
+				screenX: 750,
+				screenY: 350,
+				shot: "wide",
+				voiceLineId: "s0",
+				voiceStartMs: 0,
+			},
+			{
+				index: 0,
+				type: "point",
+				markId: "t3",
+				selector: "#products",
+				atMs: 2000,
+				screenX: 550,
+				screenY: 650,
+				shot: "wide",
+				voiceLineId: "s0",
+				voiceStartMs: 0,
+			},
+		]);
+		// The voice clock is the plan's: the film ends on the plan's end.
+		expect(state.clock).toBe(plan?.endMs);
+	});
+
+	it("a `wide` line after a click keeps the next line on plan: the point entries carry the planned voice start", async () => {
+		const { state, deps } = harness();
+		const { actionLog, plan } = await runDriveReal(
+			stepList([
+				{ type: "click", selector: "#open", say: "Open [[open]] it." },
+				{ type: "wait", ms: 1200, shot: "wide", say, targets } as never,
+			]),
+			{
+				...deps,
+				narrationMode: "continuous",
+				narration: {
+					lines: {
+						s0: { durationMs: 2000, marks: { open: 1500 } },
+						s1: narration.lines.s0,
+					},
+				},
+			},
+		);
+		expect(state.clicks).toBe(1);
+		const points = actionLog.filter((e) => e.type === "point");
+		expect(points.map((e) => e.atMs)).toEqual([2800, 3500, 4300]);
+		expect(points.every((e) => e.voiceStartMs === plan?.steps[1]?.lineStartMs)).toBe(true);
+		expect(plan?.steps[1]?.gapBeforeMs).toBe(300);
+	});
+
+	it("a target missing at mark time: no failure, `missing: true`, the cursor stays where it is", async () => {
+		const { "#orders": _gone, ...withoutOrders } = boxes;
+		const { state, deps } = harness(withoutOrders);
+		const { actionLog } = await runDriveReal(
+			stepList([{ type: "wait", ms: 1200, shot: "wide", say, targets } as never]),
+			{ ...deps, narrationMode: "continuous", narration },
+		);
+		expect(state.clicks).toBe(0);
+		expect(state.moves.map((m) => [m.x, m.y])).toEqual([
+			[350, 350],
+			[550, 650],
+		]);
+		const missing = actionLog[1];
+		expect(missing).toEqual({
+			index: 0,
+			type: "point",
+			markId: "t2",
+			selector: "#orders",
+			atMs: 1200,
+			missing: true,
+			shot: "wide",
+			voiceLineId: "s0",
+			voiceStartMs: 0,
+		});
+	});
+
+	it("`hold`: zero moveTo, zero clicks, one wait entry as before", async () => {
+		const { state, deps } = harness();
+		const { actionLog } = await runDriveReal(
+			stepList([{ type: "wait", ms: 1200, shot: "hold", say, targets } as never]),
+			{ ...deps, narrationMode: "continuous", narration },
+		);
+		expect(state.moves).toEqual([]);
+		expect(state.clicks).toBe(0);
+		expect(actionLog).toEqual([
+			{ index: 0, type: "wait", atMs: 0, ms: 1200, voiceLineId: "s0", voiceStartMs: 0 },
+		]);
+	});
+
+	it("`point` entries emit no zoom region (the `wide` rule)", async () => {
+		const { deps } = harness();
+		const list = stepList([{ type: "wait", ms: 1200, shot: "wide", say, targets } as never]);
+		const { actionLog, viewport } = await runDriveReal(list, {
+			...deps,
+			narrationMode: "continuous",
+			narration,
+		});
+		const { fragment } = emitZoomRegions(actionLog, viewport, ["wide"]);
+		expect(fragment.zoomRegions).toEqual([]);
+	});
+});

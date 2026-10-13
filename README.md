@@ -110,6 +110,10 @@ several `[[mark]]`s in its `say` line when it maps each one to a selector in `"t
   "targets": { "t1": "#table-a", "t2": "#table-b" } }
 ```
 
+With continuous narration, a `wide` (or `reveal`) wait points without clicking: as each mark is
+spoken the cursor glides to that mark's target and rests there until the next mark, while the page
+stays at 1x; a `hold` step keeps the cursor still.
+
 An unknown shot name, a mark without a target or a target without a mark is refused before anything
 launches. `targets` are web selectors; native steps cannot use them yet.
 

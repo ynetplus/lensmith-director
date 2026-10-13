@@ -32,7 +32,7 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import type { Command } from "commander";
 import { chromium } from "playwright";
-import type { ActionLogEntry } from "../lib/actionLog.js";
+import type { ActionLogEntry, ActionLogPointEntry } from "../lib/actionLog.js";
 import {
 	CalibrationError,
 	type CalibrationPageLike,
@@ -57,10 +57,12 @@ import {
 	parseWebKeys,
 	readDriveStepList,
 	resolveShots,
+	type ShotName,
 	type Step,
 	type StepList,
 	StepListError,
 	sayMark,
+	sayMarks,
 } from "../lib/stepList.js";
 import {
 	type ContinuousAction,
@@ -344,21 +346,22 @@ export function validateNarration(
 				`"${sourcePath}" line "${id}": speech bounds must be integers with 0 <= speechStartMs < speechEndMs <= durationMs`,
 			);
 		}
-		const mark = sayMark(step.say);
-		if (mark === undefined) return;
-		const markMs =
-			typeof marks === "object" && marks !== null
-				? (marks as Record<string, unknown>)[mark]
-				: undefined;
-		if (
-			typeof markMs !== "number" ||
-			!Number.isFinite(markMs) ||
-			markMs < 0 ||
-			markMs > durationMs
-		) {
-			throw new DriveError(
-				`${where} marks [[${mark}]] but "${sourcePath}" line "${id}" has no such mark within the line`,
-			);
+		// Every mark: a line with `targets` may carry several (shot grammar).
+		for (const mark of sayMarks(step.say)) {
+			const markMs =
+				typeof marks === "object" && marks !== null
+					? (marks as Record<string, unknown>)[mark]
+					: undefined;
+			if (
+				typeof markMs !== "number" ||
+				!Number.isFinite(markMs) ||
+				markMs < 0 ||
+				markMs > durationMs
+			) {
+				throw new DriveError(
+					`${where} marks [[${mark}]] but "${sourcePath}" line "${id}" has no such mark within the line`,
+				);
+			}
 		}
 	});
 	return timings as NarrationTimings;
@@ -438,6 +441,7 @@ export function continuousPlanFor(
 	narration: NarrationTimings,
 ): ContinuousPlan {
 	validateContinuousSteps(stepList);
+	const shots = resolveShots(stepList);
 	const lines = stepList.steps.map((step, index) => {
 		const line = narration.lines[narrationLineId(index)];
 		if (!line) {
@@ -453,6 +457,13 @@ export function continuousPlanFor(
 			planned.speechStartMs = line.speechStartMs;
 			planned.speechEndMs = line.speechEndMs;
 		}
+		// Shot grammar: a `wide`/`reveal` web wait points at each mark's target, in the line's order.
+		const targets = webPointTargets(step, shots[index]);
+		if (targets !== undefined && step.say !== undefined) {
+			planned.pointMarks = sayMarks(step.say)
+				.filter((markId) => targets[markId] !== undefined)
+				.map((markId) => ({ markId, markMs: line.marks[markId] as number }));
+		}
 		return planned;
 	});
 	const actions = stepList.steps.map((step): ContinuousAction | undefined => {
@@ -465,6 +476,42 @@ export function continuousPlanFor(
 		return action;
 	});
 	return planContinuousNarration(lines, actions);
+}
+
+/**
+ * The mark → selector map a step points at: a web `wait` filmed `wide` or `reveal` with `targets`
+ * (shot grammar). Any other step points at nothing.
+ */
+function webPointTargets(
+	step: DriveStep,
+	shot: ShotName | undefined,
+): Record<string, string> | undefined {
+	if (step.type !== "wait" || isNativeStep(step)) return undefined;
+	if (shot !== "wide" && shot !== "reveal") return undefined;
+	return (step as { targets?: Record<string, string> }).targets;
+}
+
+/** How long a point waits for its target to be attached before calling it missing. */
+export const POINT_LOOKUP_TIMEOUT_MS = 250;
+
+/**
+ * The screen point for a `wide`/`reveal` target, computed as a click's would be, read when its mark
+ * comes (no scroll: the shot keeps the page still). Undefined when the target is absent, has no
+ * box, or sits outside the window: the cursor then stays where it is.
+ */
+async function webPointTarget(
+	page: PageLike,
+	selector: string,
+	offset: PointLike,
+	viewport: ViewportSize,
+): Promise<PointLike | undefined> {
+	try {
+		const box = await page.locator(selector).boundingBox({ timeout: POINT_LOOKUP_TIMEOUT_MS });
+		if (!box) return undefined;
+		return computeScreenPoint(offset, box, viewport);
+	} catch {
+		return undefined;
+	}
 }
 
 export interface RunDriveResult {
@@ -1828,6 +1875,7 @@ async function runSteps(
 	const { now, sleep, narration, plan, t0, offset, viewport } = run;
 	const { choreographer } = deps;
 	const actionLog: ActionLogEntry[] = [];
+	const shots = resolveShots(stepList);
 	let lastPoint: PointLike | undefined;
 	// Continuous mode: how far the run has fallen behind the plan (a settle that outlasted the
 	// planned busy time). Every later planned time shifts by it, so marks keep landing on clicks.
@@ -1865,6 +1913,43 @@ async function runSteps(
 				driftMs += behindMs - absorbedMs;
 			} else if (!webWait) driftMs += behindMs;
 			const lineStartMs = planned.lineStartMs + driftMs;
+			const targets = webPointTargets(step, shots[index]);
+			if (webWait && targets !== undefined && planned.points !== undefined) {
+				// Shot grammar `wide`/`reveal`: at each mark the cursor glides to its target and rests
+				// there. No click, no dwell, no drift: pointing never moves a line (BF-26).
+				const page = deps.page;
+				for (const point of planned.points) {
+					const waitMs = point.atMs + driftMs - (now() - t0);
+					if (waitMs > 0) await sleep(waitMs);
+					const selector = targets[point.markId] as string;
+					const entry: ActionLogPointEntry = {
+						index,
+						type: "point",
+						markId: point.markId,
+						selector,
+						atMs: now() - t0,
+						voiceLineId: voice.lineId,
+						voiceStartMs: lineStartMs,
+					};
+					const shot = shots[index];
+					if (shot !== undefined) entry.shot = shot;
+					const target = page && (await webPointTarget(page, selector, offset, viewport));
+					if (target) {
+						const moved = await choreographer.moveTo(
+							target.x,
+							target.y,
+							travelFor(lastPoint, target),
+						);
+						lastPoint = moved.to;
+						entry.screenX = moved.to.x;
+						entry.screenY = moved.to.y;
+					} else {
+						entry.missing = true;
+					}
+					actionLog.push(entry);
+				}
+				continue;
+			}
 			if (webWait && "ms" in step) {
 				// A narrated web wait is just its line: the next step waits for its own planned moment.
 				const entry: ActionLogEntry = {
@@ -1982,7 +2067,9 @@ async function runSteps(
 		// Settle pacing: hold the result at full zoom, then zoom out and breathe at 1x before the next
 		// step (no breath after the last step: nothing follows it).
 		const driven = actionLog[actionLog.length - 1];
-		if (driven && "screenX" in driven) lastPoint = { x: driven.screenX, y: driven.screenY };
+		if (driven && driven.type !== "point" && "screenX" in driven) {
+			lastPoint = { x: driven.screenX, y: driven.screenY };
+		}
 		if (plan && planned) {
 			// Continuous: the voice starts are the plan's line starts; no hold, no breath — the next
 			// step waits for its own planned moment (Settle LOCK v1.1).

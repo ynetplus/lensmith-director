@@ -198,6 +198,17 @@ export interface ContinuousLine {
 	 */
 	speechStartMs?: number;
 	speechEndMs?: number;
+	/**
+	 * A `wide` or `reveal` line (shot grammar): the marks the cursor points at, in order, ms into
+	 * the line. Planned only for a step without an action.
+	 */
+	pointMarks?: readonly { markId: string; markMs: number }[];
+}
+
+/** One `wide`/`reveal` point: the cursor glides to the mark's target at `atMs` and rests there. */
+export interface ContinuousPlanPoint {
+	markId: string;
+	atMs: number;
 }
 
 /** The cursor action a step performs; omitted for a step with no cursor action (a wait). */
@@ -227,6 +238,11 @@ export interface ContinuousPlanStep {
 	actionLateMs?: number;
 	/** When the cursor leaves for the target (= click - travel - dwell); the previous zoom region ends here. */
 	travelStartMs?: number;
+	/**
+	 * A `wide`/`reveal` step: one point per mark, at `lineStartMs + mark`. No action, no travel
+	 * deficit, no lateness: pointing never delays a line.
+	 */
+	points?: ContinuousPlanPoint[];
 }
 
 export interface ContinuousPlan {
@@ -273,6 +289,13 @@ export function planContinuousNarration(
 				`planContinuousNarration: line ${index} has its speech bounds outside the line`,
 			);
 		}
+		for (const point of line.pointMarks ?? []) {
+			if (!(point.markMs >= 0 && point.markMs <= line.durationMs)) {
+				throw new Error(
+					`planContinuousNarration: line ${index} has its point mark "${point.markId}" outside the line`,
+				);
+			}
+		}
 		const action = actions[index];
 		const naturalStartMs =
 			previousSpeechEndMs === undefined ? 0 : previousSpeechEndMs + maxLineGapMs - speechStartMs;
@@ -305,6 +328,11 @@ export function planContinuousNarration(
 			step.actionLateMs = actionLateMs;
 			step.travelStartMs = clickMs - leadMs;
 			cursorFreeAtMs = clickMs + (action.busyMs ?? defaultBusyMs);
+		} else if (line.pointMarks !== undefined) {
+			step.points = line.pointMarks.map((point) => ({
+				markId: point.markId,
+				atMs: lineStartMs + point.markMs,
+			}));
 		}
 		steps.push(step);
 		previousLineEndMs = step.lineEndMs;
