@@ -2393,7 +2393,7 @@ describe("runDrive: say lines timed to the voice (CR-LENSMITH-A008-2)", () => {
 	};
 
 	/** Virtual clock: travel, dwell, sleeps and a 450 ms settle advance it. The real cursor is never touched. */
-	function harness() {
+	function harness(settleMs = 450) {
 		const state = {
 			clock: 0,
 			sleeps: [] as number[],
@@ -2408,7 +2408,7 @@ describe("runDrive: say lines timed to the voice (CR-LENSMITH-A008-2)", () => {
 		const page: PageLike = {
 			...base,
 			async evaluate<T, Arg>(fn: (arg: Arg) => T, arg: Arg): Promise<T> {
-				if (arg && typeof arg === "object" && "quietMs" in arg) state.clock += 450;
+				if (arg && typeof arg === "object" && "quietMs" in arg) state.clock += settleMs;
 				return base.evaluate(fn, arg);
 			},
 		};
@@ -2515,11 +2515,101 @@ describe("runDrive: say lines timed to the voice (CR-LENSMITH-A008-2)", () => {
 		expect(planned?.gapBeforeMs).toBe(300);
 		const second = actionLog[1];
 		if (second?.type !== "click") throw new Error("expected a click entry");
-		// The fake settle (450 ms) outlasts the planned busy (300): the run drifts 150 ms, voice and
-		// click together. Measured against its own voice start the click is on mark + lateness.
-		expect(second.clickedAtMs - (second.voiceStartMs ?? Number.NaN)).toBe(100 + 800);
+		// The fake settle (450 ms) outlasts the planned busy (300): the loop is 150 ms behind. BF-26:
+		// the click absorbs the 100 ms of allowance left (900 - 800) and only 50 ms drifts the voice,
+		// so against its own voice start the click lands at mark + 900, the cap.
+		expect(second.clickedAtMs - (second.voiceStartMs ?? Number.NaN)).toBe(100 + 900);
 		expect(second.clickedAtMs).toBe((planned?.actionMs ?? 0) + 800 + 150);
 		expect(state.clicksAt).toHaveLength(2);
+	});
+
+	// BF-26: the fake settle is 950 ms against the planned busy of 300, so step 0's click step
+	// returns 650 ms after its planned finish (click at 1500, planned free at 1800, real 2450).
+	it("continuous mode (BF-26): a narrated wait after a late click step starts on its planned line start", async () => {
+		const { state, deps } = harness(950);
+		const { actionLog, plan } = await runDriveReal(
+			stepList([
+				{ type: "click", selector: "#a", say: "Open the [[story]] story" },
+				{ type: "wait", ms: 500, say: "And that is the payoff." },
+			]),
+			{
+				...deps,
+				narrationMode: "continuous",
+				narration: timings({
+					s0: { durationMs: 2000, marks: { story: 1500 } },
+					s1: { durationMs: 2000 },
+				}),
+			},
+		);
+		expect(state.clicksAt).toEqual([1500]);
+		const wait = actionLog[1];
+		if (wait?.type !== "wait") throw new Error("expected a wait entry");
+		expect(wait.atMs).toBe(2450); // the loop arrives 150 ms after the line's plan, 650 after the click's
+		expect(plan?.steps[1]?.lineStartMs).toBe(2300);
+		expect(wait.voiceStartMs).toBe(2300);
+		// No drift: the film ends on the plan's end.
+		expect(state.clock).toBe(plan?.endMs);
+	});
+
+	it("continuous mode (BF-26): a late loop inside the click's allowance starts the line on plan and lands the click later", async () => {
+		const { state, deps } = harness(950);
+		const { actionLog, plan } = await runDriveReal(
+			stepList([
+				{ type: "click", selector: "#a", say: "Open the [[story]] story" },
+				{ type: "click", selector: "#b", say: "Then the [[then]] other one." },
+			]),
+			{
+				...deps,
+				narrationMode: "continuous",
+				narration: timings({
+					s0: { durationMs: 2000, marks: { story: 1500 } },
+					s1: { durationMs: 2000, marks: { then: 700 } },
+				}),
+			},
+		);
+		// Plan: s1 at 2300, mark at 3000, click needs 1800 + 1400 = 3200: 200 ms late, 700 left.
+		const planned = plan?.steps[1];
+		expect(planned?.actionLateMs).toBe(200);
+		expect(planned?.travelStartMs).toBe(1800);
+		const second = actionLog[1];
+		if (second?.type !== "click") throw new Error("expected a click entry");
+		expect(second.startedAtMs).toBe(2450); // 650 behind the planned travel start
+		expect(second.voiceStartMs).toBe(2300); // on plan
+		expect(second.clickedAtMs).toBe(3200 + 650); // the click absorbs all 650
+		expect(second.clickedAtMs - 2300).toBeLessThanOrEqual(700 + 900);
+		// No drift: the film ends on the plan's end.
+		expect(state.clock).toBe(plan?.endMs);
+	});
+
+	it("continuous mode (BF-26): lateness beyond the allowance left shifts the line by exactly the excess", async () => {
+		const { state, deps } = harness(950);
+		const { actionLog, plan } = await runDriveReal(
+			stepList([
+				{ type: "click", selector: "#a", say: "Open the [[story]] story" },
+				{ type: "click", selector: "#b", say: "Then [[then]] the other one." },
+			]),
+			{
+				...deps,
+				narrationMode: "continuous",
+				narration: timings({
+					s0: { durationMs: 2000, marks: { story: 1500 } },
+					s1: { durationMs: 2000, marks: { then: 300 } },
+				}),
+			},
+		);
+		// Plan: s1 at 2300, mark at 2600, click at 3200: 600 ms late, 300 of the 900 left.
+		const planned = plan?.steps[1];
+		expect(planned?.actionLateMs).toBe(600);
+		const second = actionLog[1];
+		if (second?.type !== "click") throw new Error("expected a click entry");
+		// 650 behind: 300 absorbed by the click, 350 drift moves the line.
+		expect(second.voiceStartMs).toBe(2300 + 350);
+		expect(second.clickedAtMs).toBe(3200 + 650);
+		// Against its own line the click lands 300 ms later than planned, at the 900 ms cap.
+		expect(second.clickedAtMs - (second.voiceStartMs ?? Number.NaN)).toBe(300 + 600 + 300);
+		expect(second.clickedAtMs - (second.voiceStartMs ?? Number.NaN)).toBe(300 + 900);
+		// The final hold keeps its formula with the drift: the film ends 350 ms after the plan.
+		expect(state.clock).toBe((plan?.endMs ?? 0) + 350);
 	});
 
 	it("the result hold lasts until max(settle + 1200, voice end + 600), then the normal pause", async () => {
