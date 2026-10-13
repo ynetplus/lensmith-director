@@ -712,10 +712,15 @@ export async function pinWindowBounds(
 }
 
 /**
- * CR-LENSMITH-A011-7: the page viewport a web `demo` records, in points. The film is this area
- * only (no tab strip, no address bar, no window frame, no desktop), so at 2x it is 3840x2160.
+ * CR-LENSMITH-A011-7: the page viewport a web `demo` sizes, in points. macOS rounds the window's
+ * bottom corners (about 14 pt), so the page area is {@link VIEWPORT_CORNER_ALLOWANCE} taller than
+ * the frame and only its top 1920x1080 is recorded (no tab strip, no address bar, no window frame,
+ * no desktop; 3840x2160 at 2x). The page's bottom 16 pt are off-frame by design.
  */
-export const DRIVEN_VIEWPORT = { width: 1920, height: 1080 } as const;
+export const DRIVEN_VIEWPORT = { width: 1920, height: 1096 } as const;
+
+/** CR-LENSMITH-A011-7: the page rows below the recorded frame that keep the rounded corners out. */
+export const VIEWPORT_CORNER_ALLOWANCE = 16;
 
 /** The six window measurements one `page.evaluate` reads (CSS px = points at 100% zoom). */
 export interface WindowMetrics {
@@ -743,7 +748,8 @@ export function viewportScreenRect(m: WindowMetrics): CaptureRegion {
 /**
  * CR-LENSMITH-A011-7: the viewport size to ask for. {@link DRIVEN_VIEWPORT} when the window (that
  * viewport plus the browser frame, placed at {@link DRIVEN_WINDOW}'s position) fits the display;
- * otherwise the largest 16:9 viewport with a width that is a multiple of 16 that does. Pure.
+ * otherwise the largest 16:9 frame with a width that is a multiple of 16 that does, plus the
+ * {@link VIEWPORT_CORNER_ALLOWANCE} rows below it. Pure.
  */
 export function fitDrivenViewport(
 	display: { width: number; height: number },
@@ -754,10 +760,10 @@ export function fitDrivenViewport(
 		Math.min(
 			DRIVEN_VIEWPORT.width / 16,
 			Math.floor((display.width - DRIVEN_WINDOW.x - frame.width) / 16),
-			Math.floor((display.height - DRIVEN_WINDOW.y - frame.height) / 9),
+			Math.floor((display.height - DRIVEN_WINDOW.y - frame.height - VIEWPORT_CORNER_ALLOWANCE) / 9),
 		),
 	);
-	return { width: 16 * k, height: 9 * k };
+	return { width: 16 * k, height: 9 * k + VIEWPORT_CORNER_ALLOWANCE };
 }
 
 const readWindowMetrics = (): WindowMetrics => ({
@@ -776,7 +782,8 @@ const VIEWPORT_RESIZE_INTERVAL_MS = 100;
 /**
  * CR-LENSMITH-A011-7: sizes the driven window through CDP so its page viewport is exactly
  * {@link DRIVEN_VIEWPORT} (or the shrunk size {@link fitDrivenViewport} picks on a small display,
- * said once on `log`), then returns the viewport's screen rect. Returns null when the context has
+ * said once on `log`), then returns the recorded rect: the TOP 16:9 part of the viewport's screen
+ * rect, so the rounded bottom corners stay outside the frame. Returns null when the context has
  * no CDP session (the caller keeps the window capture). Throws {@link DriveError} naming the actual
  * inner size when the resize does not land exactly, so no recording starts on a wrong frame.
  */
@@ -795,10 +802,11 @@ export async function sizeDrivenViewport(options: {
 		height: before.outerHeight - before.innerHeight,
 	};
 	const target = fitDrivenViewport(display, frame);
+	const recordedHeight = target.height - VIEWPORT_CORNER_ALLOWANCE;
 	if (target.width !== DRIVEN_VIEWPORT.width) {
 		log(
 			`drive: the display (${display.width}x${display.height} points) cannot fit a ` +
-				`${DRIVEN_VIEWPORT.width}x${DRIVEN_VIEWPORT.height} viewport — recording ${target.width}x${target.height}`,
+				`${DRIVEN_VIEWPORT.width}x${DRIVEN_VIEWPORT.height} viewport — recording ${target.width}x${recordedHeight}`,
 		);
 	}
 	const session = await context.newCDPSession(page);
@@ -821,7 +829,7 @@ export async function sizeDrivenViewport(options: {
 	for (let i = 0; i < VIEWPORT_RESIZE_ATTEMPTS; i++) {
 		after = await page.evaluate<WindowMetrics, undefined>(readWindowMetrics, undefined);
 		if (after.innerWidth === target.width && after.innerHeight === target.height) {
-			return viewportScreenRect(after);
+			return { ...viewportScreenRect(after), height: recordedHeight };
 		}
 		if (i < VIEWPORT_RESIZE_ATTEMPTS - 1) await sleep(VIEWPORT_RESIZE_INTERVAL_MS);
 	}

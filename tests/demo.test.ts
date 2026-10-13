@@ -20,6 +20,7 @@ import {
 	OLD_ENGINE_REGION_MESSAGE,
 	runDemo,
 	webCaptureTarget,
+	withViewportCapture,
 } from "../src/commands/demo.js";
 import { DriveError, type NarrationTimings } from "../src/commands/drive.js";
 import type { ActionLogEntry } from "../src/lib/actionLog.js";
@@ -277,6 +278,49 @@ describe("runDemo", () => {
 		const zoomsPath = argAfter(composeCall?.args ?? [], "--zooms");
 		const fragment = JSON.parse(readFileSync(zoomsPath, "utf-8"));
 		expect(fragment.zoomRegions).toHaveLength(2);
+	});
+
+	it("CR-LENSMITH-A011-7: a viewport recording composes with --padding 0; a window recording keeps the default", async () => {
+		const viewportRun = buildSpawnFn(happyPathHandlers());
+		await runDemo(
+			{ stepsPath, outDir },
+			{
+				spawnFn: viewportRun.spawnFn,
+				nodeBinPath: "node",
+				resolveEngineBinaryPath: () => "/fake/lensmith/dist/cli.js",
+				performDrive: async (_list, hooks) => {
+					await hooks.onWindowReady({ source: "region:0,112,1920,1080" });
+					return {
+						actionLog: FAKE_ACTION_LOG,
+						viewport: { width: 1920, height: 1080 },
+						viewportRect: { x: 0, y: 112, width: 1920, height: 1080 },
+					};
+				},
+				probeDurationMs: () => null,
+				readyTimeoutMs: 2000,
+				stopTimeoutMs: 2000,
+			},
+		);
+		const record = viewportRun.calls.find((c) => c.subcommand === "record");
+		expect(argAfter(record?.args ?? [], "--source")).toBe("region:0,112,1920,1080");
+		const compose = viewportRun.calls.find((c) => c.subcommand === "compose");
+		expect(argAfter(compose?.args ?? [], "--padding")).toBe("0");
+
+		const windowRun = buildSpawnFn(happyPathHandlers());
+		await runDemo(
+			{ stepsPath, outDir },
+			{
+				spawnFn: windowRun.spawnFn,
+				nodeBinPath: "node",
+				resolveEngineBinaryPath: () => "/fake/lensmith/dist/cli.js",
+				performDrive: fakePerformDrive(),
+				probeDurationMs: () => null,
+				readyTimeoutMs: 2000,
+				stopTimeoutMs: 2000,
+			},
+		);
+		const windowCompose = windowRun.calls.find((c) => c.subcommand === "compose");
+		expect(windowCompose?.args).not.toContain("--padding");
 	});
 
 	it("BF-15: records the driven window with --source window:<id> when the id is known, and starts the recorder before any step runs", async () => {
@@ -1245,7 +1289,7 @@ describe("web capture: the page viewport, edge to edge (CR-LENSMITH-A011-7)", ()
 		expect(choice.mode).toBe("screen");
 	});
 
-	it("a click at page point (960, 540) zooms on (0.5, 0.5) of the 1920x1080 capture", () => {
+	it("a click at page point (960, 540) of the 1920x1096 page zooms on (0.5, 0.5) of the top 1920x1080 capture", () => {
 		const log: ActionLogEntry[] = [
 			{
 				index: 0,
@@ -1257,7 +1301,13 @@ describe("web capture: the page viewport, edge to edge (CR-LENSMITH-A011-7)", ()
 				boundingBox: { x: 900, y: 520, width: 120, height: 40 },
 			} as ActionLogEntry,
 		];
-		const { fragment } = emitZoomRegions(log, { width: 1920, height: 1080 });
+		const driven = withViewportCapture(
+			{ actionLog: log, viewport: { width: 1920, height: 1096 } },
+			RECT,
+		);
+		expect(driven.viewport).toEqual({ width: 1920, height: 1080 });
+		expect(driven.viewportRect).toEqual(RECT);
+		const { fragment } = emitZoomRegions(driven.actionLog, driven.viewport);
 		expect(fragment.zoomRegions[0]?.focus).toEqual({ cx: 0.5, cy: 0.5 });
 	});
 });

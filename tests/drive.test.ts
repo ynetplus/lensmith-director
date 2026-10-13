@@ -2100,9 +2100,9 @@ describe("BF-15 — fixed window and driven-window discovery", () => {
 			).toEqual({ x: 1, y: 112, width: 1920, height: 1080 });
 		});
 
-		it("sizes the window through CDP so the viewport is exactly 1920x1080 and returns its screen rect", async () => {
+		it("sizes the window through CDP so the viewport is exactly 1920x1096 and returns its top 1920x1080", async () => {
 			const calls: Array<[string, unknown]> = [];
-			const page = fakePage([metrics({ w: 1600, h: 813 }), metrics({ w: 1920, h: 1080 })]);
+			const page = fakePage([metrics({ w: 1600, h: 813 }), metrics({ w: 1920, h: 1096 })]);
 			const lines: string[] = [];
 			const rect = await sizeDrivenViewport({
 				context: cdp(calls),
@@ -2115,7 +2115,7 @@ describe("BF-15 — fixed window and driven-window discovery", () => {
 				"Browser.setWindowBounds",
 				{
 					windowId: 9,
-					bounds: { windowState: "normal", left: 0, top: 25, width: 1920, height: 1167 },
+					bounds: { windowState: "normal", left: 0, top: 25, width: 1920, height: 1183 },
 				},
 			]);
 			expect(rect).toEqual({ x: 0, y: 112, width: 1920, height: 1080 });
@@ -2125,11 +2125,11 @@ describe("BF-15 — fixed window and driven-window discovery", () => {
 		it("shrinks to the largest 16:9 viewport (width a multiple of 16) on a 1512x982 display, said once", async () => {
 			expect(fitDrivenViewport({ width: 1512, height: 982 }, { width: 0, height: 87 })).toEqual({
 				width: 1504,
-				height: 846,
+				height: 862,
 			});
 			const calls: Array<[string, unknown]> = [];
 			const lines: string[] = [];
-			const page = fakePage([metrics({ w: 1600, h: 813 }), metrics({ w: 1504, h: 846 })]);
+			const page = fakePage([metrics({ w: 1600, h: 813 }), metrics({ w: 1504, h: 862 })]);
 			const rect = await sizeDrivenViewport({
 				context: cdp(calls),
 				page,
@@ -2152,7 +2152,7 @@ describe("BF-15 — fixed window and driven-window discovery", () => {
 					sleep: async () => undefined,
 					log: () => undefined,
 				}),
-			).rejects.toThrow(/1920x1080 — it is 1920x1050/);
+			).rejects.toThrow(/1920x1096 — it is 1920x1050/);
 		});
 
 		it("returns null without a CDP session (the window capture stays)", async () => {

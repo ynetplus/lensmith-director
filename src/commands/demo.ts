@@ -390,7 +390,7 @@ async function defaultPerformDrive(
 							? undefined
 							: await (nativeDeps?.mainDisplayBounds ?? mainDisplayBoundsMac)();
 					if (declared === "auto" && display !== undefined) {
-						// CR-LENSMITH-A011-7: size the page viewport to 1920x1080 points and record only it.
+						// CR-LENSMITH-A011-7: size the page viewport to 1920x1096 points and record its top 1920x1080.
 						viewportRect =
 							(await sizeDrivenViewport({
 								context: ctx,
@@ -415,7 +415,7 @@ async function defaultPerformDrive(
 					return native?.capture === undefined
 						? viewportRect === undefined
 							? result
-							: { ...result, viewportRect }
+							: withViewportCapture(result, viewportRect)
 						: {
 								...result,
 								viewport: { width: native.capture.width, height: native.capture.height },
@@ -673,6 +673,22 @@ export function chooseCapture(list: DriveStepList, ctx: ChooseCaptureContext): C
 		return windowChoice(ctx.window);
 	}
 	return screen();
+}
+
+/**
+ * CR-LENSMITH-A011-7: a viewport run's drive result. Pure. The recorded region is the top of the
+ * page viewport (same origin), so page points are capture points and `viewport` becomes the capture
+ * size (1920x1080, not the 1920x1096 page area) — the zoom and cursor normalisation stay unchanged.
+ */
+export function withViewportCapture<T extends { viewport: { width: number; height: number } }>(
+	result: T,
+	viewportRect: CaptureRegion,
+): T & { viewportRect: CaptureRegion } {
+	return {
+		...result,
+		viewport: { width: viewportRect.width, height: viewportRect.height },
+		viewportRect,
+	};
 }
 
 /**
@@ -1186,6 +1202,8 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 				paths.rawVideo,
 				"--out",
 				paths.projectFile,
+				// CR-LENSMITH-A011-7: a viewport recording fills the film; no wallpaper border.
+				...(drivenResult.viewportRect !== undefined ? ["--padding", "0"] : []),
 			]);
 			if (code !== 0) throw new Error(`compose exited with code ${code}`);
 		} catch (error) {
