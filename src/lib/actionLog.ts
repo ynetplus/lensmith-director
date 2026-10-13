@@ -164,7 +164,7 @@ export interface ActionLogActivateEntry {
 
 /**
  * A `wide`/`reveal` step's pointing, one entry per `[[mark]]` (continuous narration): the cursor
- * glided to the mark's target at `atMs` and rests there. No click is ever posted. A target that
+ * glided to the mark's target so that it ARRIVES at `atMs` and rests there. No click is ever posted. A target that
  * could not be found at mark time leaves the cursor where it was: `missing: true`, no screen point.
  */
 export interface ActionLogPointEntry {
@@ -172,8 +172,12 @@ export interface ActionLogPointEntry {
 	type: "point";
 	markId: string;
 	selector: string;
-	/** When the glide to the target began (the mark), relative to `t0`. */
+	/** The mark: when the voice speaks the word the cursor rests on, relative to `t0`. */
 	atMs: number;
+	/** Round 2: when the glide began (`atMs − travel`, or later if the cursor was still busy). */
+	travelStartMs?: number;
+	/** Round 2: when the cursor came to rest on the target (the move resolved). */
+	arrivedAtMs?: number;
 	screenX?: number;
 	screenY?: number;
 	missing?: true;

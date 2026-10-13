@@ -239,7 +239,9 @@ export function emitZoomRegions(
 			if (last && !lastClosed) {
 				const voiceStart = (entry as { voiceStartMs?: number }).voiceStartMs;
 				const at = logMsToFilmMs(
-					shot === "reveal" && voiceStart !== undefined ? voiceStart : entryStartMs(entry),
+					// Round 2 (CR-LENSMITH-A011-10): a `wide` line closes the region at its START too, so the
+					// zoom-out plays under the first words and the first point is already at 1x.
+					voiceStart !== undefined ? voiceStart : entryStartMs(entry),
 				);
 				last.endMs = Math.max(last.startMs, at);
 				last.connect = false;

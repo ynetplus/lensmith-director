@@ -475,12 +475,13 @@ describe("CR-LENSMITH-A011-9 shot grammar in emitZoomRegions", () => {
 		expect(followed[1]?.startMs).toBe(3000);
 	});
 
-	it("wide emits no region, ends the open region at its start, and records the close for later passes", () => {
+	it("wide emits no region, ends the open region at its line start, and records the close for later passes", () => {
+		// CR-LENSMITH-A011-10 round 2: the line start (voice 1900), not the entry's own time (2000).
 		const log = [clickEntry({ index: 0 }), waitEntry(1, 2000, 5000, 1900)];
 		const result = emitZoomRegions(log, VIEWPORT, ["close", "wide"]);
 		expect(result.fragment.zoomRegions).toHaveLength(1);
-		expect(result.fragment.zoomRegions[0]).toMatchObject({ endMs: 2000, connect: false });
-		expect(result.closedAtMs).toEqual({ "zoom-0": 2000 });
+		expect(result.fragment.zoomRegions[0]).toMatchObject({ endMs: 1900, connect: false });
+		expect(result.closedAtMs).toEqual({ "zoom-0": 1900 });
 	});
 
 	it("a close step marked wide emits no region of its own", () => {
@@ -609,15 +610,44 @@ describe("CR-LENSMITH-A011-9 shot grammar in emitZoomRegions", () => {
 		expect(regions.at(-1)?.endMs).toBe(38390 + 1200);
 	});
 
-	it("pilot list with the payoff as wide: the last region ends where the payoff starts", () => {
+	it("pilot list with the payoff as wide: the last region ends where the payoff's line starts", () => {
+		// CR-LENSMITH-A011-10 round 2: the payoff's voice start (37817), not its entry time (38390).
 		const shots = [...PILOT_SHOTS.slice(0, 9), "wide"] as const;
 		const result = emitZoomRegions(PILOT_LOG, PILOT_VIEWPORT, shots);
 		expect(result.fragment.zoomRegions.at(-1)).toMatchObject({
 			id: "zoom-7",
-			endMs: 38390,
+			endMs: 37817,
 			connect: false,
 		});
-		expect(result.closedAtMs).toEqual({ "zoom-7": 38390 });
+		expect(result.closedAtMs).toEqual({ "zoom-7": 37817 });
+	});
+
+	describe("the real DBX v8 action log (fixture, CR-LENSMITH-A011-10 round 2)", () => {
+		const log = JSON.parse(
+			readFileSync(new URL("./fixtures/action-logs/dbx-v8.json", import.meta.url), "utf-8"),
+		) as ActionLogEntry[];
+		const shots = [...PILOT_SHOTS.slice(0, 9), "wide"] as const;
+		const emitted = emitZoomRegions(log, PILOT_VIEWPORT, shots, { continuous: true });
+
+		it("zoom-7 closes at the wide line's start (s9, 37853), not at the first mark (38542)", () => {
+			const continuous = continuousZoomFragment(emitted.fragment, log, 48833, emitted.closedAtMs);
+			console.log(
+				"DBX v8 regions:",
+				JSON.stringify(
+					continuous.zoomRegions.map((r) => ({
+						id: r.id,
+						startMs: Math.round(r.startMs),
+						endMs: Math.round(r.endMs),
+						connect: r.connect,
+					})),
+				),
+			);
+			expect(continuous.zoomRegions.map((r) => r.id)).toEqual(["zoom-1", "zoom-2", "zoom-7"]);
+			const z7 = continuous.zoomRegions.find((r) => r.id === "zoom-7");
+			expect(Math.round(z7?.endMs as number)).toBe(37853);
+			expect(z7?.connect).toBe(false);
+			expect(Math.round(emitted.closedAtMs["zoom-7"] as number)).toBe(37853);
+		});
 	});
 
 	describe("the real DBX v7 action log (fixture, round 2)", () => {

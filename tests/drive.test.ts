@@ -2982,14 +2982,15 @@ describe("runDrive: the cursor points in `wide`, rests in `hold` (shot grammar)"
 		},
 	};
 
-	it("`wide` with three marks: three moveTo at the marks' times in target order, zero clicks, voiceStartMs on plan", async () => {
+	it("`wide` with three marks: the cursor ARRIVES on each target at its mark (round 2), in target order, zero clicks", async () => {
+		// Marks late enough that every glide fits before its word (the first has no origin: 700 ms).
+		const arrive = { lines: { s0: { durationMs: 3000, marks: { t1: 800, t2: 1500, t3: 2300 } } } };
 		const { state, deps } = harness();
 		const { actionLog, plan } = await runDriveReal(
 			stepList([{ type: "wait", ms: 1200, shot: "wide", say, targets } as never]),
-			{ ...deps, narrationMode: "continuous", narration },
+			{ ...deps, narrationMode: "continuous", narration: arrive },
 		);
 		expect(state.clicks).toBe(0);
-		expect(state.moves.map((m) => m.atMs)).toEqual([500, 1200, 2000]);
 		expect(state.moves.map((m) => [m.x, m.y])).toEqual([
 			[350, 350],
 			[750, 350],
@@ -3001,45 +3002,24 @@ describe("runDrive: the cursor points in `wide`, rests in `hold` (shot grammar)"
 			460,
 			300 + 0.4 * Math.hypot(200, 300),
 		]);
-		expect(plan?.steps[0]?.points?.map((p) => p.atMs)).toEqual([500, 1200, 2000]);
-		expect(actionLog).toEqual([
-			{
-				index: 0,
-				type: "point",
-				markId: "t1",
-				selector: "#categories",
-				atMs: 500,
-				screenX: 350,
-				screenY: 350,
-				shot: "wide",
-				voiceLineId: "s0",
-				voiceStartMs: 0,
-			},
-			{
-				index: 0,
-				type: "point",
-				markId: "t2",
-				selector: "#orders",
-				atMs: 1200,
-				screenX: 750,
-				screenY: 350,
-				shot: "wide",
-				voiceLineId: "s0",
-				voiceStartMs: 0,
-			},
-			{
-				index: 0,
-				type: "point",
-				markId: "t3",
-				selector: "#products",
-				atMs: 2000,
-				screenX: 550,
-				screenY: 650,
-				shot: "wide",
-				voiceLineId: "s0",
-				voiceStartMs: 0,
-			},
+		// Arrival = move start + travel lands on each mark, within 10 ms on the virtual clock.
+		const marks = [800, 1500, 2300];
+		state.moves.forEach((m, i) => {
+			expect(Math.abs(m.atMs + (m.durationMs ?? 0) - (marks[i] as number))).toBeLessThanOrEqual(10);
+		});
+		expect(plan?.steps[0]?.points?.map((p) => p.atMs)).toEqual(marks);
+		const points = actionLog.filter((e) => e.type === "point");
+		expect(points.map((e) => e.atMs)).toEqual(marks);
+		expect(points.map((e) => e.travelStartMs)).toEqual(state.moves.map((m) => m.atMs));
+		points.forEach((e, i) => {
+			expect(Math.abs((e.arrivedAtMs as number) - (marks[i] as number))).toBeLessThanOrEqual(10);
+		});
+		expect(points.map((e) => [e.markId, e.selector, e.screenX, e.screenY])).toEqual([
+			["t1", "#categories", 350, 350],
+			["t2", "#orders", 750, 350],
+			["t3", "#products", 550, 650],
 		]);
+		expect(points.every((e) => e.voiceStartMs === 0 && e.shot === "wide" && !e.missing)).toBe(true);
 		// The voice clock is the plan's: the film ends on the plan's end.
 		expect(state.clock).toBe(plan?.endMs);
 	});
