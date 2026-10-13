@@ -22,6 +22,7 @@ import {
 	DriveError,
 	defaultProfileDir,
 	discoverDrivenWindowId,
+	fitDrivenViewport,
 	holdOpen,
 	launchChrome,
 	narrationDwell,
@@ -29,6 +30,8 @@ import {
 	playwrightChord,
 	readNarrationTimings,
 	runDrive as runDriveReal,
+	sizeDrivenViewport,
+	viewportScreenRect,
 	withChromeContext,
 	withLaunchedChrome,
 } from "../src/commands/drive.js";
@@ -2058,6 +2061,111 @@ describe("BF-15 — fixed window and driven-window discovery", () => {
 			},
 		});
 		expect(failing).toBeNull();
+	});
+
+	describe("the page viewport, edge to edge (CR-LENSMITH-A011-7)", () => {
+		const metrics = (inner: { w: number; h: number }) => ({
+			screenX: 0,
+			screenY: 25,
+			outerWidth: inner.w,
+			outerHeight: inner.h + 87,
+			innerWidth: inner.w,
+			innerHeight: inner.h,
+		});
+		const fakePage = (reads: ReturnType<typeof metrics>[]): PageLike =>
+			({
+				evaluate: async () => (reads.length > 1 ? reads.shift() : reads[0]),
+			}) as unknown as PageLike;
+		const cdp = (calls: Array<[string, unknown]>) =>
+			fakePersistentContext({
+				newCDPSession: async () => ({
+					send: async (method, params) => {
+						calls.push([method, params]);
+						return { windowId: 9 };
+					},
+					detach: async () => undefined,
+				}),
+			});
+
+		it("viewportScreenRect puts the viewport below the browser chrome, frame split evenly", () => {
+			expect(
+				viewportScreenRect({
+					screenX: 0,
+					screenY: 25,
+					outerWidth: 1922,
+					outerHeight: 1167,
+					innerWidth: 1920,
+					innerHeight: 1080,
+				}),
+			).toEqual({ x: 1, y: 112, width: 1920, height: 1080 });
+		});
+
+		it("sizes the window through CDP so the viewport is exactly 1920x1080 and returns its screen rect", async () => {
+			const calls: Array<[string, unknown]> = [];
+			const page = fakePage([metrics({ w: 1600, h: 813 }), metrics({ w: 1920, h: 1080 })]);
+			const lines: string[] = [];
+			const rect = await sizeDrivenViewport({
+				context: cdp(calls),
+				page,
+				display: { width: 3200, height: 1800 },
+				sleep: async () => undefined,
+				log: (l) => lines.push(l),
+			});
+			expect(calls[1]).toEqual([
+				"Browser.setWindowBounds",
+				{
+					windowId: 9,
+					bounds: { windowState: "normal", left: 0, top: 25, width: 1920, height: 1167 },
+				},
+			]);
+			expect(rect).toEqual({ x: 0, y: 112, width: 1920, height: 1080 });
+			expect(lines).toEqual([]);
+		});
+
+		it("shrinks to the largest 16:9 viewport (width a multiple of 16) on a 1512x982 display, said once", async () => {
+			expect(fitDrivenViewport({ width: 1512, height: 982 }, { width: 0, height: 87 })).toEqual({
+				width: 1504,
+				height: 846,
+			});
+			const calls: Array<[string, unknown]> = [];
+			const lines: string[] = [];
+			const page = fakePage([metrics({ w: 1600, h: 813 }), metrics({ w: 1504, h: 846 })]);
+			const rect = await sizeDrivenViewport({
+				context: cdp(calls),
+				page,
+				display: { width: 1512, height: 982 },
+				sleep: async () => undefined,
+				log: (l) => lines.push(l),
+			});
+			expect(rect).toEqual({ x: 0, y: 112, width: 1504, height: 846 });
+			expect(lines).toHaveLength(1);
+			expect(lines[0]).toContain("recording 1504x846");
+		});
+
+		it("refuses with a DriveError naming the actual inner size when the resize does not land", async () => {
+			const page = fakePage([metrics({ w: 1600, h: 813 }), metrics({ w: 1920, h: 1050 })]);
+			await expect(
+				sizeDrivenViewport({
+					context: cdp([]),
+					page,
+					display: { width: 3200, height: 1800 },
+					sleep: async () => undefined,
+					log: () => undefined,
+				}),
+			).rejects.toThrow(/1920x1080 — it is 1920x1050/);
+		});
+
+		it("returns null without a CDP session (the window capture stays)", async () => {
+			expect(
+				await sizeDrivenViewport({
+					context: fakePersistentContext(),
+					page: fakePage([]),
+					display: { width: 3200, height: 1800 },
+					sleep: async () => undefined,
+					log: () => undefined,
+				}),
+			).toBeNull();
+		});
 	});
 
 	it("pinWindowBounds sets the 1600x900 bounds at 0,25 through CDP and never throws", async () => {

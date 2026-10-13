@@ -19,9 +19,11 @@ import {
 	type NativeDemoDeps,
 	OLD_ENGINE_REGION_MESSAGE,
 	runDemo,
+	webCaptureTarget,
 } from "../src/commands/demo.js";
 import { DriveError, type NarrationTimings } from "../src/commands/drive.js";
 import type { ActionLogEntry } from "../src/lib/actionLog.js";
+import { emitZoomRegions } from "../src/lib/zoomEmission.js";
 
 // These tests exercise `runDemo` — the stage sequencing `demo`'s CLI action
 // calls — against a FAKE `spawnFn` (no real `lensmith record`/`compose`/
@@ -1183,6 +1185,81 @@ describe("chooseCapture (design note §6)", () => {
 			if (row.mode === "screen") expect(choice.capture).toEqual(DISPLAY);
 		});
 	}
+});
+
+describe("web capture: the page viewport, edge to edge (CR-LENSMITH-A011-7)", () => {
+	const RECT = { x: 0, y: 112, width: 1920, height: 1080 };
+	const web = { url: "http://localhost:8000/", steps: [{ type: "click", selector: "button" }] };
+
+	it('"auto" with a sized viewport records region:<viewport>', () => {
+		// biome-ignore lint/suspicious/noExplicitAny: partial step list
+		const choice = chooseCapture(web as any, {
+			window: null,
+			display: DISPLAY,
+			viewportRect: RECT,
+		});
+		expect(choice.mode).toBe("viewport");
+		expect(choice.source).toBe("region:0,112,1920,1080");
+		expect(choice.capture).toEqual(RECT);
+		// biome-ignore lint/suspicious/noExplicitAny: partial step list
+		expect(webCaptureTarget(web as any, 42, DISPLAY, RECT)).toEqual({
+			source: "region:0,112,1920,1080",
+		});
+	});
+
+	it('a declared "window" records window:<id> as before (no viewport sizing)', () => {
+		const list = { ...web, capture: "window" };
+		// biome-ignore lint/suspicious/noExplicitAny: partial step list
+		expect(webCaptureTarget(list as any, 42, undefined, undefined)).toBe(42);
+	});
+
+	it("a declared region or screen still wins over the viewport", () => {
+		const region = { ...web, capture: { region: { x: 10, y: 20, width: 800, height: 450 } } };
+		// biome-ignore lint/suspicious/noExplicitAny: partial step list
+		expect(webCaptureTarget(region as any, 42, DISPLAY, RECT)).toEqual({
+			source: "region:10,20,800,450",
+		});
+		// biome-ignore lint/suspicious/noExplicitAny: partial step list
+		expect(webCaptureTarget({ ...web, capture: "screen" } as any, 42, DISPLAY, RECT)).toEqual({
+			source: undefined,
+		});
+	});
+
+	it("auto without a sized viewport (no CDP) keeps the window capture", () => {
+		// biome-ignore lint/suspicious/noExplicitAny: partial step list
+		expect(webCaptureTarget(web as any, 42, DISPLAY, undefined)).toBe(42);
+	});
+
+	it("a list with native steps never records the viewport", () => {
+		const list = {
+			...web,
+			apps: [{ bundleId: LAUNCHER }],
+			steps: [{ type: "click", app: LAUNCHER, ax: { role: "AXButton" } }],
+		};
+		// biome-ignore lint/suspicious/noExplicitAny: partial step list
+		const choice = chooseCapture(list as any, {
+			window: null,
+			display: DISPLAY,
+			viewportRect: RECT,
+		});
+		expect(choice.mode).toBe("screen");
+	});
+
+	it("a click at page point (960, 540) zooms on (0.5, 0.5) of the 1920x1080 capture", () => {
+		const log: ActionLogEntry[] = [
+			{
+				index: 0,
+				type: "click",
+				selector: "button",
+				atMs: 500,
+				settleMs: 100,
+				settleReason: "quiet",
+				boundingBox: { x: 900, y: 520, width: 120, height: 40 },
+			} as ActionLogEntry,
+		];
+		const { fragment } = emitZoomRegions(log, { width: 1920, height: 1080 });
+		expect(fragment.zoomRegions[0]?.focus).toEqual({ cx: 0.5, cy: 0.5 });
+	});
 });
 
 const NATIVE_ACTION_LOG: ActionLogEntry[] = [
