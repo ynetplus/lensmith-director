@@ -50,6 +50,8 @@ export interface ActionLogClickEntry {
 	voiceLineId?: string;
 	/** CR-LENSMITH-A008-2: when that line starts, relative to `t0` (same clock as the other times). */
 	voiceStartMs?: number;
+	/** CR-LENSMITH-A011-5: web steps only — present (`"right"`) only for a right-click. */
+	button?: "right";
 }
 
 export interface ActionLogWaitEntry {
@@ -127,17 +129,22 @@ export interface ActionLogHoverEntry {
 
 /**
  * CR-LENSMITH-A010-6: a native `key`. `keys` holds normalised chord names
- * (`cmd+shift+v`), never free text.
+ * (`cmd+shift+v`), never free text. CR-LENSMITH-A011-5: a web `key` (no `app`) has the same
+ * shape without `app` and `settleReason`, plus its `selector` when it named one.
  */
 export interface ActionLogKeyEntry {
 	index: number;
 	type: "key";
-	app: string;
+	/** Native keys only. */
+	app?: string;
+	/** Web keys only: the element focused before the press, when the step named one. */
+	selector?: string;
 	keys: string[];
 	label?: string;
 	atMs: number;
 	settleMs: number;
-	settleReason: string;
+	/** Native keys only. */
+	settleReason?: string;
 	/** The `zoom` locator's frame in capture space, when the step names one. */
 	boundingBox?: BoundingBoxLike;
 	voiceLineId?: string;
