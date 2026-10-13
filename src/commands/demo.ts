@@ -1189,7 +1189,9 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 
 		// CR-LENSMITH-A011-9: the shot grammar decides each step's camera.
 		const shots = resolveShots(driveList);
-		const emitted = emitZoomRegions(drivenResult.actionLog, drivenResult.viewport, shots);
+		const emitted = emitZoomRegions(drivenResult.actionLog, drivenResult.viewport, shots, {
+			continuous: drivenResult.plan !== undefined,
+		});
 		const { warnings } = emitted;
 		// CR-LENSMITH-A011-6: continuous regions end where the next travel starts, zoom-out under voice.
 		const fragment = drivenResult.plan

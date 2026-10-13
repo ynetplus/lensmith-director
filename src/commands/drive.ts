@@ -2300,7 +2300,9 @@ export function registerDriveCommand(program: Command): void {
 									choreographer,
 									narration,
 								});
-								const emitted = emitZoomRegions(actionLog, viewport, resolveShots(stepList));
+								const emitted = emitZoomRegions(actionLog, viewport, resolveShots(stepList), {
+									continuous: plan !== undefined,
+								});
 								const { warnings } = emitted;
 								const fragment = plan
 									? continuousZoomFragment(
