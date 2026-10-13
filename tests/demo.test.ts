@@ -11,14 +11,17 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	chooseCapture,
 	DemoError,
 	type DriveHooks,
+	filmLeadLines,
 	type NativeDemoDeps,
 	OLD_ENGINE_REGION_MESSAGE,
+	parseReadyLineEpoch,
 	runDemo,
+	selectFilmLead,
 	webCaptureTarget,
 	withViewportCapture,
 } from "../src/commands/demo.js";
@@ -1112,6 +1115,48 @@ describe("runDemo: narrate stage (CR-LENSMITH-A008-5)", () => {
 		}
 	});
 
+	it("BF-27 round 3: a ready line carrying started-at gives the page lead (first frame), not the receipt lead", async () => {
+		const handlers: SpawnHandlers = {
+			...narratedHandlers(),
+			record: (child, args) => {
+				const rawPath = argAfter(args, "--out");
+				// The first frame 400 ms before this process receives the line (clock 1_000_000 = t0).
+				child.stdout.write("[lensmith] Recording ready. started-at=999600\n");
+				child.onKill = () => {
+					writeFileSync(rawPath, "fake-raw-video-bytes");
+					writeFileSync(`${rawPath}.cursor.json`, JSON.stringify({ samples: [] }));
+					writeFileSync(rawPath.replace(/\.mp4$/, ".session.json"), JSON.stringify({ ok: true }));
+					child.emitExit(0);
+				};
+			},
+		};
+		const { spawnFn } = buildSpawnFn(handlers);
+		const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		try {
+			await runDemo(
+				{ stepsPath, outDir },
+				{
+					spawnFn,
+					resolveEngineBinaryPath: () => "/fake/lensmith/dist/cli.js",
+					performDrive: async (stepList, hooks) => ({
+						...(await narratedDrive(stepList, hooks)),
+						t0Epoch: 1_000_000,
+					}),
+					probeDurationMs: () => 1000,
+					readyTimeoutMs: 2000,
+					stopTimeoutMs: 2000,
+					clock: () => 1_000_000, // receipt = t0: the receipt lead would be 0
+				},
+			);
+			const printed = errors.mock.calls.map((c) => String(c[0]));
+			expect(printed).toContain("demo: film lead 400 ms (page, first frame); telemetry lead n/a");
+		} finally {
+			errors.mockRestore();
+		}
+		const starts = JSON.parse(readFileSync(path.join(outDir, "voice-starts.json"), "utf-8"));
+		expect(starts).toEqual({ s0: 1635, s2: 5400 });
+	});
+
 	it("voice: omits --captions when none was asked for (engine default burns)", async () => {
 		const { spawnFn, calls } = buildSpawnFn(narratedHandlers());
 		await runDemo(
@@ -1701,5 +1746,45 @@ describe("runDemo — native lists (CR-LENSMITH-A010-8)", () => {
 			},
 		);
 		expect(asked).toBe(false);
+	});
+});
+
+describe("BF-27 round 3: the page lead from the engine's first-frame epoch", () => {
+	it("parses the ready line with and without started-at", () => {
+		expect(parseReadyLineEpoch("[lensmith] Recording ready. started-at=1760371200123")).toBe(
+			1760371200123,
+		);
+		expect(parseReadyLineEpoch("Recording ready. started-at=42")).toBe(42);
+		expect(parseReadyLineEpoch("[lensmith] Recording ready.")).toBeUndefined();
+		expect(parseReadyLineEpoch("Recording ready.")).toBeUndefined();
+		expect(parseReadyLineEpoch("[lensmith] Recording started. started-at=42")).toBeUndefined();
+	});
+
+	it("selects the page lead when the epoch is present, the receipt lead when absent", () => {
+		expect(selectFilmLead(1_000_000, 999_867, 999_843)).toEqual({ leadMs: 133, source: "page" });
+		expect(selectFilmLead(1_000_000, undefined, 999_843)).toEqual({
+			leadMs: 157,
+			source: "ready-line",
+		});
+		expect(selectFilmLead(undefined, 999_867, 999_843)).toEqual({ leadMs: 0, source: "page" });
+		expect(() => selectFilmLead(1_000_000, 1_000_001, 999_843)).toThrow(
+			/film lead -1 ms is outside 0\.\.5000 ms/,
+		);
+		expect(() => selectFilmLead(1_000_000, 994_999, 999_843)).toThrow(
+			/film lead 5001 ms is outside 0\.\.5000 ms/,
+		);
+	});
+
+	it("prints the telemetry lead as a diagnostic and warns when the arrow runs over 60 ms behind", () => {
+		expect(filmLeadLines({ leadMs: 133, source: "page" }, 308)).toEqual([
+			"demo: film lead 133 ms (page, first frame); telemetry lead 308 ms; arrow offset 175 ms",
+			"demo: warning — the drawn arrow is 175 ms behind the page (engine without the first-frame fix?)",
+		]);
+		expect(filmLeadLines({ leadMs: 133, source: "page" }, 193)).toEqual([
+			"demo: film lead 133 ms (page, first frame); telemetry lead 193 ms; arrow offset 60 ms",
+		]);
+		expect(filmLeadLines({ leadMs: 157, source: "ready-line" }, undefined)).toEqual([
+			"demo: film lead 157 ms (ready-line receipt; engine without started-at); telemetry lead n/a",
+		]);
 	});
 });

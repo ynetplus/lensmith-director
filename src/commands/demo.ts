@@ -188,6 +188,8 @@ function buildOutputPaths(outDir: string): DemoPaths {
 }
 
 const RECORD_READY_MARKER = "Recording ready.";
+/** BF-27 round 3 / BF-28: the engine's ready line carries the first frame's epoch. */
+const READY_LINE_EPOCH = /^Recording ready\. started-at=(\d+)/;
 const RECORD_READY_TIMEOUT_MS = 15_000;
 const RECORD_STOP_TIMEOUT_MS = 30_000;
 const STDERR_KEEP_CHARS = 4_096;
@@ -202,6 +204,21 @@ export interface SpawnedRecorder {
 	ready: Promise<void>;
 	/** CR-LENSMITH-A010-8: the recorder's stderr so far (bounded), to recognise an old engine's refusal. */
 	stderrText: () => string;
+	/**
+	 * BF-27 round 3: the first frame's epoch from the ready line (`Recording ready. started-at=<epochMs>`,
+	 * BF-28); undefined for an engine whose ready line carries none.
+	 */
+	readyEpochMs: () => number | undefined;
+}
+
+/**
+ * BF-27 round 3: the first frame's epoch carried by one engine stdout line, or undefined when the line
+ * is not a ready line with `started-at` (an engine without BF-28). The engine's `[lensmith]` log tag
+ * is stripped before the match.
+ */
+export function parseReadyLineEpoch(line: string): number | undefined {
+	const match = READY_LINE_EPOCH.exec(line.trim().replace(/^\[lensmith\]\s*/, ""));
+	return match ? Number(match[1]) : undefined;
 }
 
 /**
@@ -232,6 +249,9 @@ export function spawnRecorder(
 	});
 
 	let stderr = "";
+	let stdoutLine = "";
+	let readyLineParsed = false;
+	let readyEpochMs: number | undefined;
 	const ready = new Promise<void>((resolve, reject) => {
 		let settled = false;
 		const timer = setTimeout(() => {
@@ -242,6 +262,15 @@ export function spawnRecorder(
 
 		child.stdout?.on("data", (chunk: Buffer) => {
 			process.stdout.write(chunk);
+			if (!readyLineParsed) {
+				const lines = (stdoutLine + chunk.toString("utf-8")).split("\n");
+				stdoutLine = (lines.pop() ?? "").slice(-STDERR_KEEP_CHARS);
+				const readyLine = lines.find((line) => line.includes(RECORD_READY_MARKER));
+				if (readyLine !== undefined) {
+					readyLineParsed = true;
+					readyEpochMs = parseReadyLineEpoch(readyLine);
+				}
+			}
 			if (!settled && chunk.toString("utf-8").includes(RECORD_READY_MARKER)) {
 				settled = true;
 				clearTimeout(timer);
@@ -266,7 +295,7 @@ export function spawnRecorder(
 		});
 	});
 
-	return { child, ready, stderrText: () => stderr };
+	return { child, ready, stderrText: () => stderr, readyEpochMs: () => readyEpochMs };
 }
 
 /**
@@ -964,9 +993,9 @@ export const MAX_FILM_LEAD_MS = 5_000;
 
 /**
  * BF-27: how long the recording ran before the action log's `t0` — `t0Epoch` (the driver's wall
- * clock at `t0`) minus the moment the recorder reported ready. The engine's ready line carries no
- * timestamp, so the ready moment is this process's wall clock at receipt. A driver that reports no
- * `t0Epoch` gives lead 0 (the old identity). Throws when the lead is negative or over
+ * clock at `t0`) minus the recording's start (round 3: the first frame's epoch from the ready line;
+ * an engine without it gives this process's wall clock at the ready line's receipt). A driver that
+ * reports no `t0Epoch` gives lead 0 (the old identity). Throws when the lead is negative or over
  * {@link MAX_FILM_LEAD_MS}.
  */
 export function filmLeadMs(recordingStartedAt: number, t0Epoch: number | undefined): number {
@@ -979,6 +1008,46 @@ export function filmLeadMs(recordingStartedAt: number, t0Epoch: number | undefin
 		);
 	}
 	return leadMs;
+}
+
+/** BF-27 round 3: an arrow offset above this means the telemetry is not on the page clock. */
+export const ARROW_OFFSET_WARN_MS = 60;
+
+/**
+ * BF-27 round 3: the film lead is the PAGE lead — `t0Epoch − firstFrameEpoch` when the engine's ready
+ * line carries the first frame's epoch (BF-28); otherwise round 1's lead from the ready line's receipt.
+ */
+export function selectFilmLead(
+	t0Epoch: number | undefined,
+	firstFrameEpoch: number | undefined,
+	readyReceivedAt: number,
+): { leadMs: number; source: "page" | "ready-line" } {
+	return firstFrameEpoch !== undefined
+		? { leadMs: filmLeadMs(firstFrameEpoch, t0Epoch), source: "page" }
+		: { leadMs: filmLeadMs(readyReceivedAt, t0Epoch), source: "ready-line" };
+}
+
+/**
+ * BF-27 round 3: the lead lines `demo` prints. The telemetry lead (round 2) is a diagnostic only: its
+ * difference from the applied lead is how far the drawn arrow runs behind the page.
+ */
+export function filmLeadLines(
+	lead: { leadMs: number; source: "page" | "ready-line" },
+	telemetryLeadMs: number | undefined,
+): string[] {
+	const applied =
+		lead.source === "page"
+			? `demo: film lead ${lead.leadMs} ms (page, first frame)`
+			: `demo: film lead ${lead.leadMs} ms (ready-line receipt; engine without started-at)`;
+	if (telemetryLeadMs === undefined) return [`${applied}; telemetry lead n/a`];
+	const offsetMs = telemetryLeadMs - lead.leadMs;
+	const lines = [`${applied}; telemetry lead ${telemetryLeadMs} ms; arrow offset ${offsetMs} ms`];
+	if (offsetMs > ARROW_OFFSET_WARN_MS) {
+		lines.push(
+			`demo: warning — the drawn arrow is ${offsetMs} ms behind the page (engine without the first-frame fix?)`,
+		);
+	}
+	return lines;
 }
 
 interface ManifestArtifact {
@@ -1227,26 +1296,25 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 		const drivenResult = driveResult as RunDriveResult;
 
 		// BF-27: the recording started before t0 (BF-15 ordering) — every log time handed to the film
-		// is shifted by that lead.
-		let readyLineLeadMs: number;
+		// is shifted by that lead. Round 3: the lead is the page lead, from the first frame's epoch on the
+		// engine's ready line (BF-28); the ready line's receipt is the fallback for an older engine.
+		let lead: { leadMs: number; source: "page" | "ready-line" };
 		try {
-			readyLineLeadMs = filmLeadMs(recordingStartedAt ?? clock(), drivenResult.t0Epoch);
+			lead = selectFilmLead(
+				drivenResult.t0Epoch,
+				recorder.readyEpochMs(),
+				recordingStartedAt ?? clock(),
+			);
 		} catch (error) {
 			throw new DemoError("record", messageOf(error));
 		}
-		// BF-27 round 2: the ready line arrives after the recording has started (DBX round 10: 156 ms
-		// against 310 to 370 ms in the telemetry), so the lead is measured from the recording's own
-		// cursor telemetry; the ready-line lead is the fallback.
+		const leadMs = lead.leadMs;
+		// BF-27 round 2's telemetry lead is kept as a diagnostic only (the arrow's clock, not the page's).
 		const measured = measureFilmLead(
 			drivenResult.actionLog,
 			readCursorTelemetry(paths.cursorTelemetry),
 		);
-		const leadMs = measured?.leadMs ?? readyLineLeadMs;
-		console.error(
-			measured
-				? `demo: film lead ${leadMs} ms (telemetry, ${measured.samples.length} samples; ready-line ${readyLineLeadMs} ms)`
-				: `demo: film lead ${leadMs} ms (ready-line fallback)`,
-		);
+		for (const line of filmLeadLines(lead, measured?.leadMs)) console.error(line);
 
 		// CR-LENSMITH-A011-9: the shot grammar decides each step's camera.
 		const shots = resolveShots(driveList);
