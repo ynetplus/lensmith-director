@@ -1,6 +1,14 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { settleInPage } from "../src/commands/drive.js";
 import {
+	continuousPlanFor,
+	DriveError,
+	type NarrationTimings,
+	settleInPage,
+	validateContinuousSteps,
+} from "../src/commands/drive.js";
+import {
+	CONTINUOUS_NARRATION,
 	DEFAULT_MOVE_DURATION_MS,
 	distancePx,
 	EASE_IN_OUT_CUBIC_PEAK_VELOCITY_FACTOR,
@@ -10,6 +18,7 @@ import {
 	moveTimingWarnings,
 	pauseBeforeNextStepMs,
 	peakVelocityPxPerSec,
+	planContinuousNarration,
 	SETTLE_PACING,
 	travelMs,
 } from "../src/lib/timing.js";
@@ -232,5 +241,125 @@ describe("pauseBeforeNextStepMs (BF-11)", () => {
 	it("is zoom-out + breath = 1500 when not connected, breath = 800 when connected", () => {
 		expect(pauseBeforeNextStepMs(false)).toBe(1500);
 		expect(pauseBeforeNextStepMs(true)).toBe(800);
+	});
+});
+
+describe("planContinuousNarration (Settle LOCK v1.1, CR-LENSMITH-A011-6)", () => {
+	const LEAD = 700 + SETTLE_PACING.dwellMs; // travel 700 + dwell 700
+
+	it("chains lines 300 ms apart when every mark leaves the cursor time to arrive", () => {
+		const plan = planContinuousNarration(
+			[
+				{ durationMs: 3000 },
+				{ durationMs: 4000, markMs: 2000 },
+				{ durationMs: 2000, markMs: 1800 },
+			],
+			[undefined, { travelMs: 700 }, { travelMs: 700 }],
+		);
+		expect(plan.steps.map((s) => s.lineStartMs)).toEqual([0, 3300, 7600]);
+		expect(plan.steps.map((s) => s.gapBeforeMs)).toEqual([0, 300, 300]);
+		expect(plan.steps.map((s) => s.delayMs)).toEqual([0, 0, 0]);
+		expect(plan.endMs).toBe(9600 + CONTINUOUS_NARRATION.finalHoldMs);
+	});
+
+	it("lands each action on its mark and starts the travel travel + dwell earlier", () => {
+		const plan = planContinuousNarration(
+			[{ durationMs: 3000 }, { durationMs: 4000, markMs: 2000 }],
+			[undefined, { travelMs: 500 }],
+		);
+		const step = plan.steps[1];
+		expect(step?.actionMs).toBe(3300 + 2000);
+		expect(step?.travelStartMs).toBe(3300 + 2000 - 500 - SETTLE_PACING.dwellMs);
+	});
+
+	it("starts a line later by exactly the travel + dwell deficit when its mark comes too early", () => {
+		const plan = planContinuousNarration(
+			[{ durationMs: 1000 }, { durationMs: 3000, markMs: 200 }],
+			[undefined, { travelMs: 700 }],
+		);
+		// Natural start 1300; the cursor can leave at 0 and click at 1400 => line start >= 1200. No deficit.
+		expect(plan.steps[1]?.delayMs).toBe(0);
+		const tight = planContinuousNarration(
+			[
+				{ durationMs: 2000, markMs: 1900 },
+				{ durationMs: 3000, markMs: 100 },
+			],
+			[{ travelMs: 700 }, { travelMs: 700 }],
+		);
+		// Line 0 click at 1900, cursor free at 2200; line 1 click >= 2200 + 1400 = 3600 => start 3500.
+		const second = tight.steps[1];
+		expect(second?.lineStartMs).toBe(3500);
+		expect(second?.delayMs).toBe(3500 - 2300);
+		expect(second?.actionMs).toBe(3600);
+		expect(second?.lineEndMs).toBe(3500 + 3000); // never cut
+	});
+
+	it("delays the first line when its mark comes before the cursor can arrive", () => {
+		const plan = planContinuousNarration([{ durationMs: 2000, markMs: 300 }], [{ travelMs: 700 }]);
+		expect(plan.steps[0]?.lineStartMs).toBe(LEAD - 300);
+		expect(plan.steps[0]?.travelStartMs).toBe(0);
+	});
+
+	it("rejects mismatched inputs and marks outside the line", () => {
+		expect(() => planContinuousNarration([{ durationMs: 100 }], [])).toThrow(
+			/1 lines but 0 actions/,
+		);
+		expect(() =>
+			planContinuousNarration([{ durationMs: 100, markMs: 200 }], [{ travelMs: 400 }]),
+		).toThrow(/mark outside the line/);
+	});
+
+	describe("DBX v2 fixture", () => {
+		const fixture = JSON.parse(
+			readFileSync(new URL("./fixtures/dbx-v2-continuous.json", import.meta.url), "utf-8"),
+		) as { steps: []; timings: NarrationTimings };
+		const plan = continuousPlanFor(fixture, fixture.timings);
+
+		it("keeps every gap at 300 ms unless the cursor needs more, and lands every click on its mark", () => {
+			fixture.steps.forEach((step: { type: string; say: string }, index) => {
+				const planned = plan.steps[index];
+				expect(planned).toBeDefined();
+				if (!planned) return;
+				if (index > 0)
+					expect(planned.gapBeforeMs).toBe(CONTINUOUS_NARRATION.maxLineGapMs + planned.delayMs);
+				const mark = /\[\[([^\]]+)\]\]/.exec(step.say)?.[1];
+				const line = fixture.timings.lines[`s${index}`];
+				if (step.type !== "wait" && mark !== undefined && line) {
+					expect(planned.actionMs).toBe(planned.lineStartMs + (line.marks[mark] ?? Number.NaN));
+				}
+			});
+		});
+
+		it("produces the schedule recorded in the forge report", () => {
+			// [line start, gap before, click]. The 3840 ms gap before "Run" is the typing (49 chars x 60 ms)
+			// after the [[columns]] mark: the planner never cuts a line, so the script must move a mark.
+			expect(plan.steps.map((s) => [s.lineStartMs, s.gapBeforeMs, s.actionMs ?? null])).toEqual([
+				[0, 0, null],
+				[3800, 300, null],
+				[13300, 300, 13685],
+				[17500, 300, 20200],
+				[24840, 3840, 24840],
+				[30540, 300, 30925],
+				[34740, 300, 35895],
+				[37595, 455, 37595],
+				[38910, 515, 39295],
+				[40410, 300, null],
+			]);
+			expect(plan.endMs).toBe(40410 + 7300 + CONTINUOUS_NARRATION.finalHoldMs);
+		});
+	});
+
+	it("refuses a silent step in continuous mode, naming the step", () => {
+		expect(() =>
+			validateContinuousSteps({
+				steps: [
+					{ type: "wait", ms: 100, say: "Hello." },
+					{ type: "click", selector: "#go" },
+				],
+			}),
+		).toThrow(DriveError);
+		expect(() => validateContinuousSteps({ steps: [{ type: "click", selector: "#go" }] })).toThrow(
+			/step at index 0 \(type "click"\) has no "say" line/,
+		);
 	});
 });
