@@ -68,6 +68,7 @@ import {
 	type ContinuousAction,
 	type ContinuousLine,
 	type ContinuousPlan,
+	CURSOR_DRAW_LAG_MS,
 	distancePx,
 	LATE_ACTION_MAX_MS,
 	pauseBeforeNextStepMs,
@@ -1956,7 +1957,7 @@ async function runSteps(
 					if (shot !== undefined) entry.shot = shot;
 					if (target) {
 						const travel = travelFor(lastPoint, target);
-						const waitMs = markAtMs - travel - (now() - t0);
+						const waitMs = markAtMs - CURSOR_DRAW_LAG_MS - travel - (now() - t0);
 						if (waitMs > 0) await sleep(waitMs);
 						entry.travelStartMs = now() - t0;
 						const moved = await choreographer.moveTo(target.x, target.y, travel);

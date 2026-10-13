@@ -1,0 +1,2393 @@
+{
+	"version": 2,
+	"provider": "native",
+	"samples": [
+		{
+			"timeMs": 54,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 108,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 149,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 199,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 244,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 284,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 327,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 371,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 414,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 461,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 500,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 537,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 583,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 622,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 671,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 718,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 761,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 799,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 842,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 883,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 928,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 971,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1017,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1054,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1095,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1137,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1183,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1231,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1284,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1330,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1371,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1415,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1463,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1505,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1561,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1600,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1648,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1690,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1736,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1796,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1855,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1899,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1942,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 1987,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2035,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2079,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2128,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2167,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2211,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2252,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2295,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2338,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2383,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2429,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2477,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2517,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2561,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2612,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2655,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2702,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2744,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2795,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2838,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2883,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2922,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 2979,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3028,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3078,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3129,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3169,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3212,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3267,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3311,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3360,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3412,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3452,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3495,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3536,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3593,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3631,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3672,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3713,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3752,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3795,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3835,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3878,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3928,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 3970,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4015,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4062,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4102,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4145,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4186,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4232,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4278,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4330,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4377,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4416,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4461,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4510,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4560,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4606,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4661,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4703,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4746,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4787,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4832,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4874,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4917,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 4964,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5011,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5050,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5095,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5145,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5196,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5245,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5295,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5338,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5386,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5429,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5472,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5529,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5579,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5622,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5678,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5722,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5771,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5818,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5865,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5903,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5949,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 5994,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6045,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6095,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6136,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6177,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6216,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6255,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6311,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6361,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6401,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6446,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6485,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6527,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6569,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6612,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6652,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6696,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6735,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6781,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6829,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6878,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6920,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 6962,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7013,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7061,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7111,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7152,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7194,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7243,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7283,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7331,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7371,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7418,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7461,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7510,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7561,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7613,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7656,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7712,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7762,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7802,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7843,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7887,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7933,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 7979,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8028,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8072,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8129,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8178,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8227,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8277,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8321,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8362,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8405,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8450,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8489,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8535,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8578,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8619,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8660,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8709,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8751,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8794,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8845,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8894,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8945,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 8984,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9032,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9072,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9129,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9178,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9228,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9268,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9311,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9361,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9411,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9455,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9506,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9560,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9612,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9654,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9695,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9737,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9780,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9818,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9860,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9912,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 9956,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10001,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10044,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10087,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10131,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10171,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10211,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10260,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10298,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10344,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10382,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10421,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10464,
+			"cx": 0.4923929850260417,
+			"cy": 0.4150173611111111,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10517,
+			"cx": 0.49238802591959635,
+			"cy": 0.4150067929868345,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10557,
+			"cx": 0.49225924809773763,
+			"cy": 0.4147316261574074,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10595,
+			"cx": 0.4919898986816406,
+			"cy": 0.4141563132957176,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10636,
+			"cx": 0.4914916356404622,
+			"cy": 0.41309187147352433,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10676,
+			"cx": 0.4904394467671712,
+			"cy": 0.41084419533058447,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10717,
+			"cx": 0.48878186543782554,
+			"cy": 0.40730325204354745,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10760,
+			"cx": 0.4857998212178548,
+			"cy": 0.4009329901801215,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10799,
+			"cx": 0.4823259035746256,
+			"cy": 0.3935120194046586,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10837,
+			"cx": 0.4778525034586589,
+			"cy": 0.3839558354130498,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10878,
+			"cx": 0.47450097401936847,
+			"cy": 0.37679629855685765,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10920,
+			"cx": 0.4712196985880534,
+			"cy": 0.36978680645978007,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 10960,
+			"cx": 0.46881904602050783,
+			"cy": 0.3646585817690249,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11000,
+			"cx": 0.467440128326416,
+			"cy": 0.36171292905454283,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11041,
+			"cx": 0.4661092758178711,
+			"cy": 0.35886993408203127,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11083,
+			"cx": 0.465524959564209,
+			"cy": 0.3576216803656684,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11127,
+			"cx": 0.46530186335245766,
+			"cy": 0.3571450975206163,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11169,
+			"cx": 0.46521288553873696,
+			"cy": 0.3569550125687211,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11209,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11251,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11291,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11329,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11368,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11408,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11448,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11492,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11534,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11574,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11615,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11659,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11700,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11739,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11784,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11826,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11872,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 11912,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "click"
+		},
+		{
+			"timeMs": 11954,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "mouseup"
+		},
+		{
+			"timeMs": 12000,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12042,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12082,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12126,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12166,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12210,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12249,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12288,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12333,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12376,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12417,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12458,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12499,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12542,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12582,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12621,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12663,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12701,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12743,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12784,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12825,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12865,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12905,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12949,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 12991,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13032,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13070,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13109,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13151,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13193,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13233,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13275,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13315,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13354,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13396,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13437,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13478,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13519,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13562,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13601,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13643,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13684,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13722,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13766,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13805,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13850,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13892,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13932,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 13975,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14017,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14060,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14102,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14141,
+			"cx": 0.46520792643229164,
+			"cy": 0.35694444444444445,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14181,
+			"cx": 0.4651749610900879,
+			"cy": 0.356918532760055,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14221,
+			"cx": 0.46220506032307945,
+			"cy": 0.3545825251826534,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14260,
+			"cx": 0.4561581293741862,
+			"cy": 0.34982633237485533,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14299,
+			"cx": 0.4449704806009928,
+			"cy": 0.3410266734935619,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14341,
+			"cx": 0.4213470776875814,
+			"cy": 0.32244570696795427,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14383,
+			"cx": 0.39280951817830406,
+			"cy": 0.2999994913736979,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14422,
+			"cx": 0.31717758178710936,
+			"cy": 0.24051118073640046,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14465,
+			"cx": 0.266702397664388,
+			"cy": 0.20080993087203414,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14508,
+			"cx": 0.22788341840108237,
+			"cy": 0.1702768396448206,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14548,
+			"cx": 0.18373835881551107,
+			"cy": 0.13555456090856483,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14591,
+			"cx": 0.16938719749450684,
+			"cy": 0.12426664564344618,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14632,
+			"cx": 0.15960418383280436,
+			"cy": 0.11657180786132812,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14675,
+			"cx": 0.15574865341186522,
+			"cy": 0.11353923656322339,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14716,
+			"cx": 0.15548502604166667,
+			"cy": 0.11333188657407407,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14755,
+			"cx": 0.15548502604166667,
+			"cy": 0.11333188657407407,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14797,
+			"cx": 0.15548502604166667,
+			"cy": 0.11333188657407407,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14837,
+			"cx": 0.15548502604166667,
+			"cy": 0.11333188657407407,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14877,
+			"cx": 0.15548502604166667,
+			"cy": 0.11333188657407407,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14915,
+			"cx": 0.15548502604166667,
+			"cy": 0.11333188657407407,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14959,
+			"cx": 0.15548502604166667,
+			"cy": 0.11333188657407407,
+			"visible": true,
+			"interactionType": "move"
+		},
+		{
+			"timeMs": 14998,
+			"cx": 0.15548502604166667,
+			"cy": 0.11333188657407407,
+			"visible": true,
+			"interactionType": "move"
+		}
+	]
+}

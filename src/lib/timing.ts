@@ -187,6 +187,13 @@ export const CONTINUOUS_NARRATION = {
  */
 export const LATE_ACTION_MAX_MS = 900;
 
+/**
+ * BF-27 round 2: the drawn arrow on film runs 80 to 120 ms behind the cursor telemetry (DBX round 10,
+ * mark frames t2/t3 against the `raw.mp4.cursor.json` samples). Wide/reveal points aim their arrival
+ * this much before the mark so the drawn arrow, not the telemetry, rests on the target at the word.
+ */
+export const CURSOR_DRAW_LAG_MS = 100;
+
 /** One voice line, from the engine's `timings.json` (`lines.s<index>`). */
 export interface ContinuousLine {
 	durationMs: number;
