@@ -1,0 +1,213 @@
+[
+	{
+		"index": 0,
+		"type": "wait",
+		"atMs": 35.20966600000065,
+		"ms": 400,
+		"voiceLineId": "s0",
+		"voiceStartMs": 0,
+		"shot": "wide"
+	},
+	{
+		"index": 1,
+		"type": "click",
+		"selector": "button:has-text(\"Demo PostgresPostgreSQL\")",
+		"startedAtMs": 10159.287083,
+		"clickedAtMs": 11594.369999999999,
+		"screenX": 893.19921875,
+		"screenY": 502.5,
+		"boundingBox": {
+			"x": 611,
+			"y": 355,
+			"width": 564.3984375,
+			"height": 61
+		},
+		"settleMs": 625,
+		"label": "Open Postgres",
+		"voiceLineId": "s1",
+		"voiceStartMs": 10781,
+		"shot": "close"
+	},
+	{
+		"index": 2,
+		"type": "type",
+		"selector": ".cm-lineNumbers .cm-gutterElement:text-is(\"1\")",
+		"startedAtMs": 13842.90075,
+		"endedAtMs": 18522.566041000002,
+		"screenX": 298.53125,
+		"screenY": 239.3984375,
+		"boundingBox": {
+			"x": 288,
+			"y": 112,
+			"width": 21.0625,
+			"height": 20.796875
+		},
+		"characterCount": 49,
+		"settleMs": 394,
+		"label": "Type the query",
+		"voiceLineId": "s2",
+		"voiceStartMs": 14845,
+		"shot": "close"
+	},
+	{
+		"index": 3,
+		"type": "key",
+		"keys": ["cmd+return"],
+		"atMs": 23530.593208,
+		"settleMs": 426,
+		"selector": ".cm-lineNumbers .cm-gutterElement:text-is(\"1\")",
+		"boundingBox": {
+			"x": 288,
+			"y": 112,
+			"width": 21.0625,
+			"height": 20.796875
+		},
+		"label": "Run with Cmd+Enter",
+		"voiceLineId": "s3",
+		"voiceStartMs": 23054,
+		"shot": "close"
+	},
+	{
+		"index": 4,
+		"type": "click",
+		"selector": "span.tree-connection-label:text-is(\"Demo Redis\")",
+		"startedAtMs": 27559.779499999997,
+		"clickedAtMs": 28975.745375,
+		"screenX": 139,
+		"screenY": 268.5,
+		"boundingBox": {
+			"x": 50,
+			"y": 141,
+			"width": 178,
+			"height": 21
+		},
+		"settleMs": 330,
+		"label": "Open Redis",
+		"voiceLineId": "s4",
+		"voiceStartMs": 28274,
+		"shot": "close"
+	},
+	{
+		"index": 5,
+		"type": "click",
+		"selector": "span.tree-connection-label:text-is(\"Demo Postgres\")",
+		"startedAtMs": 31144.356625,
+		"clickedAtMs": 32559.964041,
+		"screenX": 132,
+		"screenY": 239.5,
+		"boundingBox": {
+			"x": 50,
+			"y": 112,
+			"width": 164,
+			"height": 21
+		},
+		"settleMs": 339,
+		"label": "Expand Postgres",
+		"voiceLineId": "s5",
+		"voiceStartMs": 32102,
+		"shot": "close"
+	},
+	{
+		"index": 6,
+		"type": "click",
+		"selector": "span.tree-object-label:text-is(\"demo_shop\")",
+		"startedAtMs": 32926.38525,
+		"clickedAtMs": 34350.924250000004,
+		"screenX": 103.80078125,
+		"screenY": 268.5,
+		"boundingBox": {
+			"x": 66,
+			"y": 141,
+			"width": 75.6015625,
+			"height": 21
+		},
+		"settleMs": 304,
+		"label": "Right-click demo_shop",
+		"button": "right",
+		"voiceLineId": "s6",
+		"voiceStartMs": 33242,
+		"shot": "close"
+	},
+	{
+		"index": 7,
+		"type": "click",
+		"selector": "text=Structure tools >> nth=0",
+		"startedAtMs": 34692.573666000004,
+		"clickedAtMs": 36107.630625,
+		"screenX": 206.88671875,
+		"screenY": 413,
+		"boundingBox": {
+			"x": 139,
+			"y": 288,
+			"width": 135.7734375,
+			"height": 16
+		},
+		"settleMs": 303,
+		"label": "Structure tools",
+		"voiceLineId": "s7",
+		"voiceStartMs": 34965,
+		"shot": "close"
+	},
+	{
+		"index": 8,
+		"type": "click",
+		"selector": "text=View Diagram >> nth=0",
+		"startedAtMs": 36442.202625,
+		"clickedAtMs": 37858.948541,
+		"screenX": 434.7734375,
+		"screenY": 417,
+		"boundingBox": {
+			"x": 346.7734375,
+			"y": 292,
+			"width": 176,
+			"height": 16
+		},
+		"settleMs": 549,
+		"label": "View Diagram",
+		"voiceLineId": "s8",
+		"voiceStartMs": 36298.972833,
+		"shot": "close"
+	},
+	{
+		"index": 9,
+		"type": "point",
+		"markId": "t1",
+		"selector": "[role=dialog] span.truncate.font-medium:text-is(\"categories\")",
+		"atMs": 38515.972833,
+		"voiceLineId": "s9",
+		"voiceStartMs": 37827.972833,
+		"shot": "wide",
+		"travelStartMs": 38416.225166000004,
+		"arrivedAtMs": 38817.519791,
+		"screenX": 505.44921875,
+		"screenY": 353.21875
+	},
+	{
+		"index": 9,
+		"type": "point",
+		"markId": "t2",
+		"selector": "[role=dialog] span.truncate.font-medium:text-is(\"orders\")",
+		"atMs": 39402.972833,
+		"voiceLineId": "s9",
+		"voiceStartMs": 37827.972833,
+		"shot": "wide",
+		"travelStartMs": 39003.757291,
+		"arrivedAtMs": 39406.302458,
+		"screenX": 505.45703125,
+		"screenY": 565.21875
+	},
+	{
+		"index": 9,
+		"type": "point",
+		"markId": "t3",
+		"selector": "[role=dialog] span.truncate.font-medium:text-is(\"products\")",
+		"atMs": 41065.972833,
+		"voiceLineId": "s9",
+		"voiceStartMs": 37827.972833,
+		"shot": "wide",
+		"travelStartMs": 40590.514541,
+		"arrivedAtMs": 41068.872708,
+		"screenX": 945.39453125,
+		"screenY": 565.21875
+	}
+]

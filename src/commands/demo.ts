@@ -52,6 +52,7 @@ import type { Command } from "commander";
 import type { ActionLogEntry } from "../lib/actionLog.js";
 import { CursorChoreographer } from "../lib/cursorChoreographer.js";
 import { resolveEngineBinaryPath as resolveRealEngineBinaryPath } from "../lib/engineBinary.js";
+import { type CursorTelemetry, measureFilmLead } from "../lib/filmLead.js";
 import {
 	launchApp as launchRealApp,
 	NativeDriver,
@@ -948,6 +949,16 @@ export interface RunDemoDeps {
 	clock?: () => number;
 }
 
+/** BF-27 round 2: the recording's cursor telemetry, or undefined when absent or unreadable. */
+function readCursorTelemetry(filePath: string): CursorTelemetry | undefined {
+	try {
+		const parsed = JSON.parse(readFileSync(filePath, "utf-8")) as Partial<CursorTelemetry>;
+		return Array.isArray(parsed.samples) ? { samples: parsed.samples } : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 /** BF-27: a film lead above this is not a navigation time — something is wrong with the clocks. */
 export const MAX_FILM_LEAD_MS = 5_000;
 
@@ -1217,13 +1228,25 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 
 		// BF-27: the recording started before t0 (BF-15 ordering) — every log time handed to the film
 		// is shifted by that lead.
-		let leadMs: number;
+		let readyLineLeadMs: number;
 		try {
-			leadMs = filmLeadMs(recordingStartedAt ?? clock(), drivenResult.t0Epoch);
+			readyLineLeadMs = filmLeadMs(recordingStartedAt ?? clock(), drivenResult.t0Epoch);
 		} catch (error) {
 			throw new DemoError("record", messageOf(error));
 		}
-		console.error(`demo: film lead ${leadMs} ms (recording started before t0)`);
+		// BF-27 round 2: the ready line arrives after the recording has started (DBX round 10: 156 ms
+		// against 310 to 370 ms in the telemetry), so the lead is measured from the recording's own
+		// cursor telemetry; the ready-line lead is the fallback.
+		const measured = measureFilmLead(
+			drivenResult.actionLog,
+			readCursorTelemetry(paths.cursorTelemetry),
+		);
+		const leadMs = measured?.leadMs ?? readyLineLeadMs;
+		console.error(
+			measured
+				? `demo: film lead ${leadMs} ms (telemetry, ${measured.samples.length} samples; ready-line ${readyLineLeadMs} ms)`
+				: `demo: film lead ${leadMs} ms (ready-line fallback)`,
+		);
 
 		// CR-LENSMITH-A011-9: the shot grammar decides each step's camera.
 		const shots = resolveShots(driveList);
