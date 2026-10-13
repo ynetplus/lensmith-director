@@ -26,6 +26,7 @@ import {
 	launchChrome,
 	narrationDwell,
 	pinWindowBounds,
+	playwrightChord,
 	readNarrationTimings,
 	runDrive as runDriveReal,
 	withChromeContext,
@@ -2512,5 +2513,180 @@ describe("runDrive: say lines timed to the voice (CR-LENSMITH-A008-2)", () => {
 				list,
 			).lines.s0?.marks.story,
 		).toBe(400);
+	});
+});
+
+describe("runDrive: web right-click and web key (CR-LENSMITH-A011-5)", () => {
+	const boxes = {
+		"#node": { x: 100, y: 100, width: 100, height: 40 }, // centre 150,120
+		"#q": { x: 300, y: 400, width: 200, height: 30 },
+	};
+	interface Recorded {
+		mouse: { x: number; y: number; button: string | undefined }[];
+		keys: string[];
+		focused: string[];
+		events: string[];
+	}
+	const instrumented = (): { page: PageLike; rec: Recorded } => {
+		const rec: Recorded = { mouse: [], keys: [], focused: [], events: [] };
+		const base = fakePage({
+			elements: boxes,
+			viewport: { width: 1280, height: 800 },
+			windowOffset: { x: 0, y: 0 },
+		});
+		const page: PageLike = {
+			...base,
+			async bringToFront() {
+				rec.events.push("front");
+			},
+			locator(selector: string) {
+				const loc = base.locator(selector);
+				return {
+					...loc,
+					async focus() {
+						rec.focused.push(selector);
+						rec.events.push(`focus:${selector}`);
+					},
+				};
+			},
+			mouse: {
+				async click(x: number, y: number, options?: { button?: "left" | "right" }) {
+					rec.mouse.push({ x, y, button: options?.button });
+					rec.events.push(`mouse:${options?.button ?? "left"}`);
+					await base.mouse.click(x, y);
+				},
+			},
+			keyboard: {
+				async press(key: string) {
+					rec.keys.push(key);
+					rec.events.push(`press:${key}`);
+				},
+			},
+		};
+		return { page, rec };
+	};
+
+	it("a click without button goes through the real-cursor click, as before", async () => {
+		const { page, rec } = instrumented();
+		let helperClicks = 0;
+		const base = fakeChoreographer();
+		const choreographer: ChoreographerLike = {
+			...base,
+			async click() {
+				helperClicks += 1;
+				return base.click();
+			},
+		};
+		const { actionLog } = await runDrive(stepList([{ type: "click", selector: "#node" }]), {
+			page,
+			choreographer,
+		});
+		expect(helperClicks).toBe(1);
+		// Only the calibration click reaches Playwright's mouse, never a right button.
+		expect(rec.mouse.every((m) => m.button === undefined)).toBe(true);
+		expect(actionLog[0]).not.toHaveProperty("button");
+	});
+
+	it("a right-click travels the real cursor first, then posts the right button at the element centre", async () => {
+		const { page, rec } = instrumented();
+		const calls: string[] = [];
+		const base = fakeChoreographer();
+		const choreographer: ChoreographerLike = {
+			...base,
+			async moveTo(x, y, d) {
+				calls.push(`move:${x},${y}`);
+				return base.moveTo(x, y, d);
+			},
+			async dwell() {
+				calls.push("dwell");
+			},
+			async click() {
+				calls.push("helper-click");
+				return base.click();
+			},
+		};
+		const recMouse = page.mouse.click.bind(page.mouse);
+		page.mouse.click = async (x, y, options) => {
+			calls.push(`mouse:${options?.button ?? "left"}`);
+			await recMouse(x, y, options);
+		};
+		const { actionLog } = await runDrive(
+			stepList([{ type: "click", selector: "#node", button: "right" }]),
+			{ page, choreographer },
+		);
+		// calibration's left click first, then: travel, dwell, the right button — no helper click.
+		expect(calls.slice(-3)).toEqual(["move:150,120", "dwell", "mouse:right"]);
+		expect(calls).not.toContain("helper-click");
+		expect(rec.mouse.at(-1)).toEqual({ x: 150, y: 120, button: "right" });
+		const entry = actionLog[0];
+		expect(entry).toMatchObject({ type: "click", selector: "#node", button: "right" });
+		expect(entry).toMatchObject({ screenX: 150, screenY: 120 });
+		const zooms = emitZoomRegions(actionLog, { width: 1280, height: 800 });
+		expect(zooms.fragment.zoomRegions.length).toBe(1);
+	});
+
+	it("a web key focuses the page, then presses each chord with Playwright names", async () => {
+		const { page, rec } = instrumented();
+		const { actionLog } = await runDrive(
+			{
+				url: "http://localhost:4173/drive-test-page.html",
+				steps: [{ type: "key", keys: ["cmd+enter", "escape"], label: "Run" }],
+			} as StepList,
+			{ page, choreographer: fakeChoreographer() },
+		);
+		expect(rec.keys).toEqual(["Meta+Enter", "Escape"]);
+		const front = rec.events.lastIndexOf("front");
+		expect(front).toBeGreaterThanOrEqual(0);
+		expect(front).toBeLessThan(rec.events.indexOf("press:Meta+Enter"));
+		expect(actionLog[0]).toMatchObject({
+			index: 0,
+			type: "key",
+			keys: ["cmd+return", "escape"],
+			label: "Run",
+		});
+		expect(actionLog[0]).not.toHaveProperty("app");
+	});
+
+	it("a web key with a selector focuses it first and zooms on it", async () => {
+		const { page, rec } = instrumented();
+		const { actionLog } = await runDrive(
+			{
+				url: "http://localhost:4173/drive-test-page.html",
+				steps: [{ type: "key", keys: "cmd+enter", selector: "#q" }],
+			} as StepList,
+			{ page, choreographer: fakeChoreographer() },
+		);
+		expect(rec.focused).toEqual(["#q"]);
+		expect(rec.events.indexOf("focus:#q")).toBeLessThan(rec.events.indexOf("press:Meta+Enter"));
+		expect(actionLog[0]).toMatchObject({
+			type: "key",
+			selector: "#q",
+			keys: ["cmd+return"],
+			boundingBox: boxes["#q"],
+		});
+		expect(
+			emitZoomRegions(actionLog, { width: 1280, height: 800 }).fragment.zoomRegions.length,
+		).toBe(1);
+	});
+
+	it("a web key whose selector never appears fails naming the step", async () => {
+		const { page } = instrumented();
+		await expect(
+			runDrive(
+				{
+					url: "http://localhost:4173/drive-test-page.html",
+					steps: [{ type: "key", keys: "return", selector: "#missing", timeoutMs: 50 }],
+				} as StepList,
+				{ page, choreographer: fakeChoreographer() },
+			),
+		).rejects.toThrow(/index 0 \(type "key"\).*#missing/);
+	});
+
+	it("maps chords to Playwright key strings", () => {
+		expect(playwrightChord({ key: "return", mods: ["cmd"] })).toBe("Meta+Enter");
+		expect(playwrightChord({ key: "v", mods: ["cmd", "shift"] })).toBe("Meta+Shift+v");
+		expect(playwrightChord({ key: "f5", mods: [] })).toBe("F5");
+		expect(playwrightChord({ key: "left", mods: ["opt", "ctrl"] })).toBe("Alt+Control+ArrowLeft");
+		expect(playwrightChord({ key: "delete", mods: [] })).toBe("Backspace");
 	});
 });

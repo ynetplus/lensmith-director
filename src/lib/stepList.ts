@@ -27,6 +27,27 @@ export interface ClickStep {
 	 * (the step drives exactly as without it) when no narration timings are given.
 	 */
 	say?: string;
+	/**
+	 * CR-LENSMITH-A011-5. Which mouse button the click uses. Omitted means `"left"` (every existing
+	 * step list); `"right"` opens the page's context menu after the real cursor has travelled there.
+	 */
+	button?: "left" | "right";
+}
+
+/**
+ * CR-LENSMITH-A011-5. A web `key` step (no `app`): posts one chord, or several in order, to the
+ * focused page. Same chord grammar as a native `key` ({@link parseKeys}), plus `enter` as a web
+ * name for `return`; `fn` has no web equivalent. `selector`, when given, is focused first.
+ */
+export interface WebKeyStep {
+	type: "key";
+	keys: string | string[];
+	selector?: string;
+	label?: string;
+	/** See {@link ClickStep.timeoutMs} — bounds the `selector` wait and focus. */
+	timeoutMs?: number;
+	/** See {@link ClickStep.say}. The mark lands on the key press. */
+	say?: string;
 }
 
 export interface WaitStep {
@@ -74,7 +95,7 @@ export interface TypeStepFromKeychain {
 
 export type TypeStep = TypeStepLiteral | TypeStepFromKeychain;
 
-export type Step = ClickStep | WaitStep | TypeStep;
+export type Step = ClickStep | WaitStep | TypeStep | WebKeyStep;
 
 export interface StepList {
 	url: string;
@@ -171,9 +192,21 @@ function validateStep(raw: unknown, index: number): Step {
 			label: stepDisplayLabel,
 			timeoutMs,
 			say,
-		} = raw as { selector?: unknown; label?: unknown; timeoutMs?: unknown; say?: unknown };
+			button,
+		} = raw as {
+			selector?: unknown;
+			label?: unknown;
+			timeoutMs?: unknown;
+			say?: unknown;
+			button?: unknown;
+		};
 		if (typeof selector !== "string" || selector.length === 0) {
 			throw new StepListError(`${label} (type "click") has a missing or empty "selector"`);
+		}
+		if (button !== undefined && button !== "left" && button !== "right") {
+			throw new StepListError(
+				`${label} (type "click") has an invalid "button" (got ${JSON.stringify(button)}; allowed: left, right)`,
+			);
 		}
 		if (stepDisplayLabel !== undefined && typeof stepDisplayLabel !== "string") {
 			throw new StepListError(`${label} (type "click") has a non-string "label"`);
@@ -184,7 +217,12 @@ function validateStep(raw: unknown, index: number): Step {
 		if (typeof stepDisplayLabel === "string") step.label = stepDisplayLabel;
 		if (validatedTimeoutMs !== undefined) step.timeoutMs = validatedTimeoutMs;
 		if (validatedSay !== undefined) step.say = validatedSay;
+		if (button !== undefined) step.button = button;
 		return step;
+	}
+
+	if (type === "key") {
+		return validateWebKeyStep(raw as Record<string, unknown>, label);
 	}
 
 	if (type === "wait") {
@@ -277,8 +315,62 @@ function validateStep(raw: unknown, index: number): Step {
 	}
 
 	throw new StepListError(
-		`${label} has an unknown "type" (got ${JSON.stringify(type)}) — expected "click", "wait", or "type"`,
+		`${label} has an unknown "type" (got ${JSON.stringify(type)}) — expected "click", "wait", "type", or "key"`,
 	);
+}
+
+/**
+ * CR-LENSMITH-A011-5: a web chord in the native grammar's form — `enter` is accepted as the web
+ * name for `return` (what Playwright and web apps call it); everything else is unchanged.
+ */
+function normaliseWebChord(chord: unknown): unknown {
+	if (typeof chord !== "string") return chord;
+	const parts = chord.split("+");
+	if (parts[parts.length - 1] === "enter") parts[parts.length - 1] = "return";
+	return parts.join("+");
+}
+
+/**
+ * CR-LENSMITH-A011-5: parses a web `key` step's `keys` — {@link parseKeys} after
+ * {@link normaliseWebChord}, refusing `fn`, which a web page cannot receive.
+ */
+export function parseWebKeys(keys: unknown): Chord[] {
+	const normalised = Array.isArray(keys) ? keys.map(normaliseWebChord) : normaliseWebChord(keys);
+	const chords = parseKeys(normalised);
+	for (const chord of chords) {
+		if (chord.mods.includes("fn")) {
+			throw new StepListError(
+				`"keys" chord ${JSON.stringify([...chord.mods, chord.key].join("+"))} uses "fn", ` +
+					"which a web page cannot receive",
+			);
+		}
+	}
+	return chords;
+}
+
+function validateWebKeyStep(raw: Record<string, unknown>, label: string): WebKeyStep {
+	try {
+		parseWebKeys(raw.keys);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		throw new StepListError(`${label} (type "key") has an invalid "keys": ${message}`);
+	}
+	const { selector, label: stepDisplayLabel } = raw;
+	if (selector !== undefined && (typeof selector !== "string" || selector.length === 0)) {
+		throw new StepListError(`${label} (type "key") has a non-string or empty "selector"`);
+	}
+	if (stepDisplayLabel !== undefined && typeof stepDisplayLabel !== "string") {
+		throw new StepListError(`${label} (type "key") has a non-string "label"`);
+	}
+	const timeoutMs = validateOptionalTimeoutMs(raw.timeoutMs, label, "key");
+	const say = validateOptionalSay(raw.say, label, "key");
+	const keys = Array.isArray(raw.keys) ? [...(raw.keys as string[])] : (raw.keys as string);
+	const step: WebKeyStep = { type: "key", keys };
+	if (typeof selector === "string") step.selector = selector;
+	if (typeof stepDisplayLabel === "string") step.label = stepDisplayLabel;
+	if (timeoutMs !== undefined) step.timeoutMs = timeoutMs;
+	if (say !== undefined) step.say = say;
+	return step;
 }
 
 /** Validates an already-parsed value. Throws {@link StepListError} naming the first problem found. */
@@ -630,7 +722,7 @@ function validateLocator(raw: unknown, where: string): AxLocator {
 /** Reverse-DNS bundle id: at least two dot-separated segments of letters, digits, "-" and "_". */
 const BUNDLE_ID = /^[A-Za-z0-9-_]+(\.[A-Za-z0-9-_]+)+$/;
 
-const NATIVE_ONLY_TYPES = new Set(["hover", "key", "activate"]);
+const NATIVE_ONLY_TYPES = new Set(["hover", "activate"]);
 
 function validateOptionalDisplayLabel(
 	value: unknown,
@@ -888,6 +980,13 @@ export function validateDriveStepList(parsed: unknown): DriveStepList {
 		}
 		if (isPlainObject(raw) && typeof raw.type === "string" && NATIVE_ONLY_TYPES.has(raw.type)) {
 			throw new StepListError(`${stepLabel(index)} (type "${raw.type}") needs an "app"`);
+		}
+		// CR-LENSMITH-A011-5: a `key` without `app` is a web key — it needs a page to focus.
+		if (isPlainObject(raw) && raw.type === "key" && url === undefined) {
+			throw new StepListError(
+				`${stepLabel(index)} (type "key") has no "app", and a web "key" needs the step list's ` +
+					`"url" (a page to focus)`,
+			);
 		}
 		const step = validateStep(raw, index);
 		if ("selector" in step) hasSelector = true;

@@ -43,11 +43,18 @@ import { CursorChoreographer, CursorChoreographerError } from "../lib/cursorChor
 import { type ExecFileFn, KeychainTextError, resolveKeychainText } from "../lib/keychainText.js";
 import type { NativeDriverLike } from "../lib/nativeDriver.js";
 import { NativeHelperMissingError } from "../lib/nativeHelpers.js";
-import { type CaptureRegion, driveNativeStep, toCaptureSpace } from "../lib/nativeSteps.js";
 import {
+	type CaptureRegion,
+	chordName,
+	driveNativeStep,
+	toCaptureSpace,
+} from "../lib/nativeSteps.js";
+import {
+	type Chord,
 	type DriveStep,
 	type DriveStepList,
 	isNativeStep,
+	parseWebKeys,
 	readDriveStepList,
 	type Step,
 	type StepList,
@@ -113,6 +120,8 @@ export interface LocatorLike {
 	 * materialising at once.
 	 */
 	pressSequentially(text: string, options?: { delay?: number; timeout?: number }): Promise<void>;
+	/** CR-LENSMITH-A011-5: focuses the element before a web `key` step that names a `selector`. */
+	focus?(options?: { timeout?: number }): Promise<void>;
 }
 
 /** The minimal `Page` surface `runDrive` needs — satisfied structurally by a real Playwright `Page`. */
@@ -133,6 +142,14 @@ export interface PageLike extends CalibrationPageLike {
 	): Promise<void>;
 	/** The page's current URL — `--keep-open` prints this so a separate process/devtools session can reconnect. */
 	url(): string;
+	/**
+	 * CR-LENSMITH-A011-5: Playwright's own mouse. Calibration uses its left click; a right-click
+	 * step posts `{ button: "right" }` here after the real cursor has travelled to the point (the
+	 * cursor helper posts left clicks only).
+	 */
+	mouse: { click(x: number, y: number, options?: { button?: "left" | "right" }): Promise<void> };
+	/** CR-LENSMITH-A011-5: Playwright's keyboard — a web `key` step presses its chords here. */
+	keyboard?: { press(key: string): Promise<void> };
 }
 
 export interface MoveResultLike {
@@ -1003,6 +1020,7 @@ function buildClickEntry(args: {
 		settleMs,
 	};
 	if (step.label !== undefined) entry.label = step.label;
+	if (step.button === "right" && entry.type === "click") entry.button = "right";
 	return entry;
 }
 
@@ -1079,9 +1097,26 @@ async function driveClickStep(
 	const target = computeScreenPoint(offset, box, viewport);
 	const startedAtMs = now() - t0;
 	const travel = travelFor(lastPoint, target);
-	await choreographer.moveTo(target.x, target.y, travel);
+	const moved = await choreographer.moveTo(target.x, target.y, travel);
 	await choreographer.dwell(narrationDwell(travel, voice?.markMs).dwellMs);
-	const achieved = await choreographer.click();
+	let achieved: PointLike;
+	if (step.button === "right") {
+		// CR-LENSMITH-A011-5: the cursor helper posts left clicks only. The real cursor has
+		// travelled and dwelt on the point (the film shows it there); Playwright then posts the
+		// right button at the same element centre, so the page gets its `contextmenu`.
+		try {
+			await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "right" });
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			throw new DriveError(
+				`step at index ${index} (type "click"): selector "${step.selector}" could not be ` +
+					`right-clicked — ${message}`,
+			);
+		}
+		achieved = moved.to;
+	} else {
+		achieved = await choreographer.click();
+	}
 	const clickedAtMs = now() - t0;
 	const settleMs = await waitForSettle(page, now);
 
@@ -1250,6 +1285,126 @@ async function driveTypeStep(
 	return entry;
 }
 
+/** Playwright's name for each chord key (`stepList.ts`'s KEY_NAMES); letters and digits pass through. */
+const PLAYWRIGHT_KEY: Record<string, string> = {
+	return: "Enter",
+	tab: "Tab",
+	space: "Space",
+	escape: "Escape",
+	delete: "Backspace",
+	forwarddelete: "Delete",
+	up: "ArrowUp",
+	down: "ArrowDown",
+	left: "ArrowLeft",
+	right: "ArrowRight",
+	home: "Home",
+	end: "End",
+	pageup: "PageUp",
+	pagedown: "PageDown",
+	minus: "-",
+	equal: "=",
+	comma: ",",
+	period: ".",
+	slash: "/",
+	semicolon: ";",
+	quote: "'",
+	backslash: "\\",
+	leftbracket: "[",
+	rightbracket: "]",
+	grave: "`",
+};
+
+const PLAYWRIGHT_MODIFIER: Record<string, string> = {
+	cmd: "Meta",
+	shift: "Shift",
+	opt: "Alt",
+	ctrl: "Control",
+};
+
+/** CR-LENSMITH-A011-5: a parsed chord as Playwright's `keyboard.press` string, e.g. `Meta+Enter`. */
+export function playwrightChord(chord: Chord): string {
+	const key =
+		PLAYWRIGHT_KEY[chord.key] ?? (/^f\d+$/.test(chord.key) ? chord.key.toUpperCase() : chord.key);
+	return [...chord.mods.map((m) => PLAYWRIGHT_MODIFIER[m] ?? m), key].join("+");
+}
+
+/** The focused element's viewport box, or null when nothing but the page itself has focus. */
+function focusedBoxInPage(_arg: { focused: true }): BoundingBoxLike | null {
+	const el = document.activeElement;
+	if (!el || el === document.body || el === document.documentElement) return null;
+	const r = el.getBoundingClientRect();
+	if (r.width <= 0 || r.height <= 0) return null;
+	return { x: r.x, y: r.y, width: r.width, height: r.height };
+}
+
+/**
+ * CR-LENSMITH-A011-5: a web `key` step. Brings the page to the front, focuses `selector` when given,
+ * then presses each chord through Playwright's keyboard. The zoom frames the focused element.
+ */
+async function driveWebKeyStep(
+	step: Extract<Step, { type: "key" }>,
+	index: number,
+	deps: Required<Pick<RunDriveDeps, "page" | "now">>,
+	t0: number,
+	voice?: VoicePlan,
+): Promise<ActionLogEntry> {
+	const { page, now } = deps;
+	const where = `step at index ${index} (type "key")`;
+	const keyboard = page.keyboard;
+	if (!keyboard) throw new DriveError(`${where}: this page has no keyboard to press keys on`);
+	const chords = parseWebKeys(step.keys);
+	const timeout = step.timeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS;
+
+	await page.bringToFront();
+	let box: BoundingBoxLike | null = null;
+	if (step.selector !== undefined) {
+		const locator = page.locator(step.selector);
+		try {
+			await locator.waitFor({ state: "visible", timeout });
+			await locator.scrollIntoViewIfNeeded({ timeout });
+			if (!locator.focus) throw new Error("this locator cannot focus");
+			await locator.focus({ timeout });
+			box = await locator.boundingBox({ timeout });
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			throw new DriveError(
+				`${where}: selector "${step.selector}" could not be focused within ${timeout}ms — ${message}`,
+			);
+		}
+	} else {
+		box = await page.evaluate<BoundingBoxLike | null, { focused: true }>(focusedBoxInPage, {
+			focused: true,
+		});
+	}
+
+	const atMs = now() - t0;
+	for (const chord of chords) {
+		try {
+			await keyboard.press(playwrightChord(chord));
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			throw new DriveError(`${where}: "${chordName(chord)}" could not be pressed — ${message}`);
+		}
+	}
+	const settleMs = await waitForSettle(page, now);
+
+	const entry: ActionLogEntry = {
+		index,
+		type: "key",
+		keys: chords.map(chordName),
+		atMs,
+		settleMs,
+	};
+	if (step.selector !== undefined) entry.selector = step.selector;
+	if (box) entry.boundingBox = box;
+	if (step.label !== undefined) entry.label = step.label;
+	if (voice) {
+		entry.voiceLineId = voice.lineId;
+		entry.voiceStartMs = voiceStartFor(voice, atMs, atMs);
+	}
+	return entry;
+}
+
 /**
  * Drives the full step list against an already-navigated page. Calibrates
  * once at the start, then per `click` step: locates,
@@ -1350,8 +1505,10 @@ function webBoxToCapture(
 	offset: PointLike,
 	capture: CaptureRegion | undefined,
 ): ActionLogEntry {
-	if (!capture || (entry.type !== "click" && entry.type !== "type")) return entry;
+	if (!capture) return entry;
+	if (entry.type !== "click" && entry.type !== "type" && entry.type !== "key") return entry;
 	const b = entry.boundingBox;
+	if (!b) return entry;
 	entry.boundingBox = toCaptureSpace(
 		{ x: b.x + offset.x, y: b.y + offset.y, width: b.width, height: b.height },
 		capture,
@@ -1432,7 +1589,15 @@ async function runSteps(
 				continue;
 			}
 
-			if (step.type === "type") {
+			if (step.type === "key") {
+				actionLog.push(
+					webBoxToCapture(
+						await driveWebKeyStep(step, index, { page, now }, t0, voice),
+						offset,
+						deps.native?.capture,
+					),
+				);
+			} else if (step.type === "type") {
 				actionLog.push(
 					webBoxToCapture(
 						await driveTypeStep(

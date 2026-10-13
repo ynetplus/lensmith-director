@@ -7,6 +7,7 @@ import {
 	KEY_NAMES,
 	MODIFIER_NAMES,
 	parseKeys,
+	parseWebKeys,
 	readDriveStepList,
 	readStepList,
 	StepListError,
@@ -801,5 +802,97 @@ describe("stepListWarnings", () => {
 		const warnings = stepListWarnings(list);
 		expect(warnings).toHaveLength(2);
 		expect(warnings[0]).toContain("point locators break across app versions");
+	});
+});
+
+describe("CR-LENSMITH-A011-5 web right-click and web key", () => {
+	const web = (step: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+		url: "http://localhost:4173/page.html",
+		steps: [step],
+		...extra,
+	});
+	const message = (fn: () => unknown): string => {
+		try {
+			fn();
+		} catch (error) {
+			expect(error).toBeInstanceOf(StepListError);
+			return (error as Error).message;
+		}
+		throw new Error("expected a StepListError");
+	};
+
+	it("leaves a click without button exactly as before (left by default, no field added)", () => {
+		const list = validateDriveStepList(web({ type: "click", selector: "#a" }));
+		expect(list.steps[0]).toEqual({ type: "click", selector: "#a" });
+	});
+
+	it("accepts button left and right", () => {
+		for (const button of ["left", "right"]) {
+			const list = validateDriveStepList(web({ type: "click", selector: "#a", button }));
+			expect(list.steps[0]).toEqual({ type: "click", selector: "#a", button });
+		}
+	});
+
+	it("rejects button middle with a message naming the field", () => {
+		const m = message(() =>
+			validateDriveStepList(web({ type: "click", selector: "#a", button: "middle" })),
+		);
+		expect(m).toContain("index 0");
+		expect(m).toContain('"button"');
+		expect(m).toContain('"middle"');
+		expect(m).toContain("left, right");
+	});
+
+	it("accepts a web key without app, with and without selector", () => {
+		const list = validateDriveStepList({
+			url: "http://localhost:4173/page.html",
+			steps: [
+				{ type: "key", keys: "cmd+enter" },
+				{
+					type: "key",
+					keys: ["escape", "cmd+a"],
+					selector: "#q",
+					label: "Select all",
+					timeoutMs: 500,
+				},
+			],
+		});
+		expect(list.steps[0]).toEqual({ type: "key", keys: "cmd+enter" });
+		expect(list.steps[1]).toEqual({
+			type: "key",
+			keys: ["escape", "cmd+a"],
+			selector: "#q",
+			label: "Select all",
+			timeoutMs: 500,
+		});
+	});
+
+	it("parses web keys with the native grammar plus enter as return", () => {
+		expect(parseWebKeys("cmd+enter")).toEqual([{ key: "return", mods: ["cmd"] }]);
+		expect(parseWebKeys(["return", "cmd+shift+v"])).toEqual(parseKeys(["return", "cmd+shift+v"]));
+	});
+
+	it("rejects web keys the native grammar rejects, and fn", () => {
+		for (const keys of ["h", "super+a", "cmd+nope", "fn+f1", 3, []]) {
+			const m = message(() => validateDriveStepList(web({ type: "key", keys })));
+			expect(m).toContain("index 0");
+			expect(m).toContain('"keys"');
+		}
+		expect(message(() => validateDriveStepList(web({ type: "key", keys: "fn+f1" })))).toContain(
+			'"fn"',
+		);
+	});
+
+	it("rejects a web key with a bad selector", () => {
+		const m = message(() =>
+			validateDriveStepList(web({ type: "key", keys: "return", selector: "" })),
+		);
+		expect(m).toContain('"selector"');
+	});
+
+	it("rejects a web key when the list has no url (nothing to focus)", () => {
+		const m = message(() => validateDriveStepList({ steps: [{ type: "key", keys: "return" }] }));
+		expect(m).toContain("index 0");
+		expect(m).toContain('"url"');
 	});
 });
