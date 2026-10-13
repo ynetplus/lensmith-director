@@ -430,6 +430,36 @@ describe("CR-LENSMITH-A011-9 shot grammar in emitZoomRegions", () => {
 		expect(continuous.zoomRegions[0]?.endMs).toBe(continuous.zoomRegions[1]?.startMs);
 	});
 
+	it("continuous: close targets whose zoomed frames overlap pan; farther than 1/scale on an axis zoom out and in", () => {
+		// 1000x500 viewport: first focus (.12, .12). 1/1.8 = .556.
+		const overlapping = { x: 550, y: 50, width: 40, height: 20 }; // focus (.57, .12): dx .45
+		const farX = { x: 700, y: 50, width: 40, height: 20 }; // focus (.72, .12): dx .60
+		const farY = { x: 100, y: 400, width: 40, height: 20 }; // focus (.12, .82): dy .70
+		const logWith = (box: { x: number; y: number; width: number; height: number }) => [
+			clickEntry({ index: 0 }),
+			clickEntry({ index: 1, startedAtMs: 3000, clickedAtMs: 3400, boundingBox: box }),
+		];
+		const emit = (box: { x: number; y: number; width: number; height: number }) =>
+			emitZoomRegions(logWith(box), VIEWPORT, ["close", "close"], { continuous: true });
+
+		const panned = emit(overlapping);
+		expect(panned.fragment.zoomRegions).toHaveLength(2);
+		expect(panned.fragment.zoomRegions[0]?.connect).toBe(true);
+		const ends = continuousZoomFragment(panned.fragment, logWith(overlapping), 9000);
+		expect(ends.zoomRegions[0]?.endMs).toBe(ends.zoomRegions[1]?.startMs);
+		// settle keeps the fit test: the same pair does not fit the 555 px frame, so no pan there
+		expect(
+			emitZoomRegions(logWith(overlapping), VIEWPORT, ["close", "close"]).fragment.zoomRegions[0]
+				?.connect,
+		).toBe(false);
+
+		for (const far of [farX, farY]) {
+			const out = emit(far).fragment.zoomRegions;
+			expect(out).toHaveLength(2);
+			expect(out[0]?.connect).toBe(false);
+		}
+	});
+
 	it("follow connects to the previous region even when the target is outside its frame", () => {
 		const far = { x: 900, y: 450, width: 40, height: 20 };
 		const log = [
@@ -594,7 +624,8 @@ describe("CR-LENSMITH-A011-9 shot grammar in emitZoomRegions", () => {
 		const log = JSON.parse(
 			readFileSync(new URL("./fixtures/action-logs/dbx-v7.json", import.meta.url), "utf-8"),
 		) as ActionLogEntry[];
-		const emitted = emitZoomRegions(log, PILOT_VIEWPORT, PILOT_SHOTS);
+		// Round 3: the v7 film is continuously narrated, so the regions come from the continuous rule.
+		const emitted = emitZoomRegions(log, PILOT_VIEWPORT, PILOT_SHOTS, { continuous: true });
 		const regions = emitted.fragment.zoomRegions;
 
 		it("emits zoom-1, zoom-2 (steps 2 to 6) and zoom-7 (steps 7 to 9)", () => {
@@ -630,15 +661,26 @@ describe("CR-LENSMITH-A011-9 shot grammar in emitZoomRegions", () => {
 			);
 		});
 
-		it("Open Postgres -> Type the query: the gutter box does not fit Open Postgres's 1.8x frame, so no pan", () => {
+		it("Open Postgres -> Type the query: the zoomed frames overlap, so the camera pans (round 3)", () => {
+			// Focus (.465, .357) -> (.155, .113): |dx| .31 and |dy| .24, both <= 1/1.8 = .556.
+			expect(regions.find((r) => r.id === "zoom-1")?.connect).toBe(true);
+			const continuous = continuousZoomFragment(emitted.fragment, log, 48517, emitted.closedAtMs);
+			const [z1, z2] = continuous.zoomRegions;
+			expect(z1?.endMs).toBe(z2?.startMs);
+		});
+
+		it("settle keeps the fit test: Open Postgres -> Type the query does not pan there", () => {
 			// Open Postgres focus (893, 385.5) -> frame x 360..1427 (inner 445..1341 with the margin);
 			// the gutter box starts at x 288. fitsInZoomedFrame is false: the pair zooms out and in.
-			expect(regions.find((r) => r.id === "zoom-1")?.connect).toBe(false);
+			const settle = emitZoomRegions(log, PILOT_VIEWPORT, PILOT_SHOTS).fragment.zoomRegions;
+			expect(settle.map((r) => r.id)).toEqual(["zoom-1", "zoom-2", "zoom-7"]);
+			expect(settle.find((r) => r.id === "zoom-1")?.connect).toBe(false);
 		});
 
 		it("continuous mode: every connected region ends where the next starts", () => {
 			const continuous = continuousZoomFragment(emitted.fragment, log, 48517, emitted.closedAtMs);
-			const [, z2, z7] = continuous.zoomRegions;
+			const [z1, z2, z7] = continuous.zoomRegions;
+			expect(z1?.endMs).toBe(z2?.startMs);
 			expect(z2?.endMs).toBe(z7?.startMs);
 		});
 	});

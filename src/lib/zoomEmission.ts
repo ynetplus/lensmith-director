@@ -37,9 +37,9 @@ export interface ZoomRegion {
 	endMs: number;
 	focus: { cx: number; cy: number };
 	/**
-	 * True when the NEXT region's target box lies inside this region's zoomed frame
-	 * (with the margin): the camera pans there instead of zooming out. False for
-	 * the last region.
+	 * True when the camera pans to the NEXT region instead of zooming out: settle, its target box
+	 * lies inside this region's zoomed frame (with the margin); continuous, the two zoomed frames
+	 * overlap. False for the last region.
 	 */
 	connect: boolean;
 	/** Zoom depth the renderer reads; without it (and `customScale`) the film renders wallpaper only (BF-12). */
@@ -172,6 +172,18 @@ function fitsInZoomedFrame(
 	);
 }
 
+/**
+ * CR-LENSMITH-A011-9 round 3: true when the zoomed frame around `focus` overlaps `region`'s zoomed
+ * frame — both focus points within 1/scale of each other on each axis (normalised; 0.556 at the
+ * Settle scale 1.8), using the region's own `customScale`.
+ */
+function zoomedFramesOverlap(region: ZoomRegion, focus: { cx: number; cy: number }): boolean {
+	const reach = 1 / region.customScale;
+	return (
+		Math.abs(focus.cx - region.focus.cx) <= reach && Math.abs(focus.cy - region.focus.cy) <= reach
+	);
+}
+
 /** When an entry began: its travel start, or the moment it was logged. */
 function entryStartMs(entry: ActionLogEntry): number {
 	return "startedAtMs" in entry ? entry.startedAtMs : entry.atMs;
@@ -203,11 +215,15 @@ function entryEndMs(entry: ActionLogEntry): number {
  * a `close` on the same spot as the previous `close` region (within {@link SAME_SPOT_MAX_DISTANCE},
  * no time limit) extends that region instead of opening a new one; otherwise a `close` whose target
  * fits inside the open region's zoomed frame connects it (a pan — no zoom-out, and no zoom-in delay).
+ * Round 3, `continuous` only: the pan test is {@link zoomedFramesOverlap} (the two zoomed frames
+ * overlap) instead of the stricter fit test, so neighbouring close-ups pan rather than zoom out and in;
+ * settle keeps the fit test unchanged.
  */
 export function emitZoomRegions(
 	actionLog: ActionLogEntry[],
 	viewport: ViewportSize,
 	shots?: readonly ShotName[],
+	options: { continuous?: boolean } = {},
 ): EmitZoomRegionsResult {
 	const warnings: string[] = [];
 	const zoomRegions: ZoomRegion[] = [];
@@ -259,7 +275,10 @@ export function emitZoomRegions(
 		}
 		if (open) {
 			open.connect =
-				shot === "follow" || fitsInZoomedFrame(entry.boundingBox, open.focus, viewport);
+				shot === "follow" ||
+				(options.continuous
+					? zoomedFramesOverlap(open, focus)
+					: fitsInZoomedFrame(entry.boundingBox, open.focus, viewport));
 		}
 		if (last && !last.connect) {
 			const earliest = last.endMs + SETTLE_PACING.zoomOutMs + SETTLE_PACING.zoomMinGapAfterOutMs;
