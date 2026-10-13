@@ -63,6 +63,7 @@ import {
 } from "../lib/stepList.js";
 import {
 	type ContinuousAction,
+	type ContinuousLine,
 	type ContinuousPlan,
 	distancePx,
 	pauseBeforeNextStepMs,
@@ -252,6 +253,9 @@ export interface NarrationLine {
 	file?: string;
 	durationMs: number;
 	marks: Record<string, number>;
+	/** BF-23: first and last speech sample (ms from the file start); both or neither, absent from older engines. */
+	speechStartMs?: number;
+	speechEndMs?: number;
 }
 
 export interface NarrationTimings {
@@ -310,9 +314,33 @@ export function validateNarration(
 		if (typeof line !== "object" || line === null || Array.isArray(line)) {
 			throw new DriveError(`${where} has a "say" line but "${sourcePath}" has no line "${id}"`);
 		}
-		const { durationMs, marks } = line as { durationMs?: unknown; marks?: unknown };
+		const { durationMs, marks, speechStartMs, speechEndMs } = line as {
+			durationMs?: unknown;
+			marks?: unknown;
+			speechStartMs?: unknown;
+			speechEndMs?: unknown;
+		};
 		if (typeof durationMs !== "number" || !Number.isFinite(durationMs) || durationMs <= 0) {
 			throw new DriveError(`"${sourcePath}" line "${id}": durationMs must be a positive number`);
+		}
+		if ((speechStartMs === undefined) !== (speechEndMs === undefined)) {
+			throw new DriveError(
+				`"${sourcePath}" line "${id}": speechStartMs and speechEndMs come together (only one is present)`,
+			);
+		}
+		if (
+			speechStartMs !== undefined &&
+			!(
+				Number.isInteger(speechStartMs) &&
+				Number.isInteger(speechEndMs) &&
+				(speechStartMs as number) >= 0 &&
+				(speechStartMs as number) < (speechEndMs as number) &&
+				(speechEndMs as number) <= durationMs
+			)
+		) {
+			throw new DriveError(
+				`"${sourcePath}" line "${id}": speech bounds must be integers with 0 <= speechStartMs < speechEndMs <= durationMs`,
+			);
 		}
 		const mark = sayMark(step.say);
 		if (mark === undefined) return;
@@ -417,9 +445,13 @@ export function continuousPlanFor(
 		}
 		const mark = step.say === undefined ? undefined : sayMark(step.say);
 		const markMs = mark === undefined ? undefined : line.marks[mark];
-		return markMs === undefined
-			? { durationMs: line.durationMs }
-			: { durationMs: line.durationMs, markMs };
+		const planned: ContinuousLine = { durationMs: line.durationMs };
+		if (markMs !== undefined) planned.markMs = markMs;
+		if (line.speechStartMs !== undefined && line.speechEndMs !== undefined) {
+			planned.speechStartMs = line.speechStartMs;
+			planned.speechEndMs = line.speechEndMs;
+		}
+		return planned;
 	});
 	const actions = stepList.steps.map((step): ContinuousAction | undefined => {
 		if (step.type === "wait") return undefined;

@@ -169,7 +169,10 @@ export function pauseBeforeNextStepMs(connected: boolean): number {
  * `finalHoldMs` (the payoff hold), and that is the end of the film.
  */
 export const CONTINUOUS_NARRATION = {
-	/** Silence between one line's end and the next line's start, unless an action forces more. */
+	/**
+	 * Silence between one line's last word and the next line's first word, unless an action forces
+	 * more (BF-23: measured on the speech bounds, so the files' own padding does not add to it).
+	 */
 	maxLineGapMs: 300,
 	/** Held after the last word (payoff), at full zoom. */
 	finalHoldMs: SETTLE_PACING.resultHoldMs,
@@ -182,6 +185,12 @@ export interface ContinuousLine {
 	durationMs: number;
 	/** The `[[mark]]` time into the line, when the step's `say` carries one. */
 	markMs?: number;
+	/**
+	 * BF-23: first and last speech sample, ms from the start of the file. Absent (older engines):
+	 * the whole file counts as speech, 0 and `durationMs`.
+	 */
+	speechStartMs?: number;
+	speechEndMs?: number;
 }
 
 /** The cursor action a step performs; omitted for a step with no cursor action (a wait). */
@@ -198,7 +207,7 @@ export interface ContinuousPlanStep {
 	index: number;
 	lineStartMs: number;
 	lineEndMs: number;
-	/** Silence before this line (0 for the first line). */
+	/** Silence before this line's first word, after the previous line's last word (0 for the first line). */
 	gapBeforeMs: number;
 	/** How much later than `maxLineGapMs` the line starts because the cursor needed the time. */
 	delayMs: number;
@@ -215,8 +224,9 @@ export interface ContinuousPlan {
 }
 
 /**
- * Plans a continuously narrated film. Pure. Each line starts `maxLineGapMs` after the previous
- * one ends, unless its action cannot reach its mark in time: the cursor can leave only after the
+ * Plans a continuously narrated film. Pure. Each line's first word comes `maxLineGapMs` after the
+ * previous line's last word (BF-23: speech bounds, falling back to the whole file when a line has
+ * none), unless its action cannot reach its mark in time: the cursor can leave only after the
  * previous action is done (click + busy), and needs travel + dwell to arrive; then the line starts
  * later by exactly that deficit (the line is never cut). An action without a mark clicks travel +
  * dwell after its line starts.
@@ -233,6 +243,7 @@ export function planContinuousNarration(
 	const { maxLineGapMs, finalHoldMs, defaultBusyMs } = CONTINUOUS_NARRATION;
 	const steps: ContinuousPlanStep[] = [];
 	let previousLineEndMs: number | undefined;
+	let previousSpeechEndMs: number | undefined;
 	let cursorFreeAtMs = 0;
 
 	lines.forEach((line, index) => {
@@ -242,8 +253,16 @@ export function planContinuousNarration(
 		if (line.markMs !== undefined && (line.markMs < 0 || line.markMs > line.durationMs)) {
 			throw new Error(`planContinuousNarration: line ${index} has its mark outside the line`);
 		}
+		const speechStartMs = line.speechStartMs ?? 0;
+		const speechEndMs = line.speechEndMs ?? line.durationMs;
+		if (!(speechStartMs >= 0 && speechStartMs < speechEndMs && speechEndMs <= line.durationMs)) {
+			throw new Error(
+				`planContinuousNarration: line ${index} has its speech bounds outside the line`,
+			);
+		}
 		const action = actions[index];
-		const naturalStartMs = previousLineEndMs === undefined ? 0 : previousLineEndMs + maxLineGapMs;
+		const naturalStartMs =
+			previousSpeechEndMs === undefined ? 0 : previousSpeechEndMs + maxLineGapMs - speechStartMs;
 		let lineStartMs = naturalStartMs;
 		let leadMs = 0;
 		if (action !== undefined) {
@@ -256,7 +275,8 @@ export function planContinuousNarration(
 			index,
 			lineStartMs,
 			lineEndMs: lineStartMs + line.durationMs,
-			gapBeforeMs: previousLineEndMs === undefined ? 0 : lineStartMs - previousLineEndMs,
+			gapBeforeMs:
+				previousSpeechEndMs === undefined ? 0 : lineStartMs + speechStartMs - previousSpeechEndMs,
 			delayMs: lineStartMs - naturalStartMs,
 		};
 		if (action !== undefined) {
@@ -267,6 +287,7 @@ export function planContinuousNarration(
 		}
 		steps.push(step);
 		previousLineEndMs = step.lineEndMs;
+		previousSpeechEndMs = lineStartMs + speechEndMs;
 	});
 
 	const lastLineEndMs = previousLineEndMs ?? 0;
