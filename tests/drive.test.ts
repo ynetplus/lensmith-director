@@ -3003,22 +3003,19 @@ describe("runDrive: the cursor points in `wide`, rests in `hold` (shot grammar)"
 			460,
 			300 + 0.4 * Math.hypot(200, 300),
 		]);
-		// Arrival = move start + travel lands CURSOR_DRAW_LAG_MS before each mark (BF-27 round 2: the
-		// drawn arrow runs behind the telemetry), within 10 ms on the virtual clock.
+		// Arrival = move start + travel lands on each mark (BF-27 round 3: CURSOR_DRAW_LAG_MS is 0, the
+		// telemetry is on the page clock since BF-28), within 10 ms on the virtual clock.
+		expect(CURSOR_DRAW_LAG_MS).toBe(0);
 		const marks = [800, 1500, 2300];
 		state.moves.forEach((m, i) => {
-			expect(
-				Math.abs(m.atMs + (m.durationMs ?? 0) - ((marks[i] as number) - CURSOR_DRAW_LAG_MS)),
-			).toBeLessThanOrEqual(10);
+			expect(Math.abs(m.atMs + (m.durationMs ?? 0) - (marks[i] as number))).toBeLessThanOrEqual(10);
 		});
 		expect(plan?.steps[0]?.points?.map((p) => p.atMs)).toEqual(marks);
 		const points = actionLog.filter((e) => e.type === "point");
 		expect(points.map((e) => e.atMs)).toEqual(marks);
 		expect(points.map((e) => e.travelStartMs)).toEqual(state.moves.map((m) => m.atMs));
 		points.forEach((e, i) => {
-			expect(
-				Math.abs((e.arrivedAtMs as number) - ((marks[i] as number) - CURSOR_DRAW_LAG_MS)),
-			).toBeLessThanOrEqual(10);
+			expect(Math.abs((e.arrivedAtMs as number) - (marks[i] as number))).toBeLessThanOrEqual(10);
 		});
 		expect(points.map((e) => [e.markId, e.selector, e.screenX, e.screenY])).toEqual([
 			["t1", "#categories", 350, 350],
