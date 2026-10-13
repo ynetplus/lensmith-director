@@ -7,6 +7,6 @@ describe("cursor platform guard", () => {
 	});
 
 	it.each(["linux", "win32"] as const)("rejects cursor commands on %s", (platform) => {
-          expect(() => ensureMacOS(platform)).toThrowError(new MacOSRequiredError(platform));
+		expect(() => ensureMacOS(platform)).toThrowError(new MacOSRequiredError(platform));
 	});
 });

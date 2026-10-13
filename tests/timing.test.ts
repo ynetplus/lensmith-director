@@ -10,6 +10,7 @@ import {
 	runDrive,
 	settleInPage,
 	validateContinuousSteps,
+	validateNarration,
 } from "../src/commands/drive.js";
 import type { ActionLogEntry } from "../src/lib/actionLog.js";
 import type { DriveStepList } from "../src/lib/stepList.js";
@@ -352,6 +353,145 @@ describe("planContinuousNarration (Settle LOCK v1.1, CR-LENSMITH-A011-6)", () =>
 				[40410, 300, null],
 			]);
 			expect(plan.endMs).toBe(40410 + 7300 + CONTINUOUS_NARRATION.finalHoldMs);
+		});
+	});
+
+	describe("speech bounds (BF-23)", () => {
+		it("places each next first word 300 ms after the last word of padded lines (lead 400, trail 650)", () => {
+			const padded = (durationMs: number) => ({
+				durationMs,
+				speechStartMs: 400,
+				speechEndMs: durationMs - 650,
+			});
+			const plan = planContinuousNarration(
+				[padded(3000), padded(4000), padded(2500)],
+				[undefined, undefined, undefined],
+			);
+			// Line 0 speech ends at 2350; line 1's first word at 2650 => file start 2250.
+			expect(plan.steps.map((s) => s.lineStartMs)).toEqual([0, 2250, 5500]);
+			expect(plan.steps.map((s) => s.gapBeforeMs)).toEqual([0, 300, 300]);
+			const speech = plan.steps.map((s, i) => [
+				s.lineStartMs + 400,
+				s.lineStartMs + [3000, 4000, 2500][i]! - 650,
+			]);
+			for (let i = 1; i < speech.length; i += 1) {
+				expect(speech[i]![0] - speech[i - 1]![1]).toBe(CONTINUOUS_NARRATION.maxLineGapMs);
+			}
+			// The payoff hold still counts from the file end, unchanged.
+			expect(plan.endMs).toBe(5500 + 2500 + CONTINUOUS_NARRATION.finalHoldMs);
+		});
+
+		it("keeps [[mark]] times file-relative and measures the travel + dwell deficit from speech end", () => {
+			const plan = planContinuousNarration(
+				[
+					{ durationMs: 2000, markMs: 1900, speechStartMs: 400, speechEndMs: 1350 },
+					{ durationMs: 3000, markMs: 500, speechStartMs: 400, speechEndMs: 2350 },
+				],
+				[{ travelMs: 700 }, { travelMs: 700 }],
+			);
+			// Natural start: 1350 + 300 - 400 = 1250. Cursor free at 1900 + 300; click >= 2200 + 1400 = 3600
+			// => start 3600 - 500 = 3100, delay 1850, speech gap 3100 + 400 - 1350.
+			const second = plan.steps[1];
+			expect(second?.lineStartMs).toBe(3100);
+			expect(second?.delayMs).toBe(3100 - 1250);
+			expect(second?.gapBeforeMs).toBe(3100 + 400 - 1350);
+			expect(second?.actionMs).toBe(3100 + 500);
+		});
+
+		it("falls back to the whole file when a line has no bounds: byte for byte the pre-BF-23 plan", () => {
+			const fixture = JSON.parse(
+				readFileSync(new URL("./fixtures/dbx-v2-continuous.json", import.meta.url), "utf-8"),
+			) as { steps: []; timings: NarrationTimings };
+			// Recorded from origin/main fd088d2 before the change.
+			expect(JSON.stringify(continuousPlanFor(fixture, fixture.timings))).toBe(
+				'{"steps":[{"index":0,"lineStartMs":0,"lineEndMs":3500,"gapBeforeMs":0,"delayMs":0},{"index":1,"lineStartMs":3800,"lineEndMs":13000,"gapBeforeMs":300,"delayMs":0},{"index":2,"lineStartMs":13300,"lineEndMs":17200,"gapBeforeMs":300,"delayMs":0,"actionMs":13685,"travelStartMs":12285},{"index":3,"lineStartMs":17500,"lineEndMs":21000,"gapBeforeMs":300,"delayMs":0,"actionMs":20200,"travelStartMs":18800},{"index":4,"lineStartMs":24840,"lineEndMs":30240,"gapBeforeMs":3840,"delayMs":3540,"actionMs":24840,"travelStartMs":23440},{"index":5,"lineStartMs":30540,"lineEndMs":34440,"gapBeforeMs":300,"delayMs":0,"actionMs":30925,"travelStartMs":29525},{"index":6,"lineStartMs":34740,"lineEndMs":37140,"gapBeforeMs":300,"delayMs":0,"actionMs":35895,"travelStartMs":34495},{"index":7,"lineStartMs":37595,"lineEndMs":38395,"gapBeforeMs":455,"delayMs":155,"actionMs":37595,"travelStartMs":36195},{"index":8,"lineStartMs":38910,"lineEndMs":40110,"gapBeforeMs":515,"delayMs":215,"actionMs":39295,"travelStartMs":37895},{"index":9,"lineStartMs":40410,"lineEndMs":47710,"gapBeforeMs":300,"delayMs":0}],"endMs":48910}',
+			);
+		});
+
+		it("dry plan: the ten DBX lines with the engine's measured bounds", () => {
+			const durations = [11550, 4775, 8900, 5875, 4575, 1800, 2300, 1925, 2250, 9500];
+			const starts = [407, 417, 387, 423, 413, 395, 403, 375, 398, 414];
+			const ends = [10898, 4162, 8332, 5333, 3923, 1243, 1798, 1411, 1606, 8998];
+			const marks = [
+				{},
+				{ postgres: 725 },
+				{ type: 350 },
+				{ run: 425 },
+				{ redis: 650 },
+				{ one: 400 },
+				{ right: 425 },
+				{ structure: 375 },
+				{ view: 612 },
+				{},
+			];
+			const steps = [
+				{ type: "wait", ms: 400, say: "Intro." },
+				{ type: "click", selector: "#a", say: "Open [[postgres]] Postgres." },
+				{
+					type: "type",
+					selector: "#b",
+					text: "SELECT name, price FROM products WHERE price > 50",
+					say: "[[type]] Type a query.",
+				},
+				{ type: "key", keys: "cmd+enter", selector: "#b", say: "[[run]] Run it." },
+				{ type: "click", selector: "#c", say: "Now [[redis]] Redis." },
+				{ type: "click", selector: "#d", say: "[[one]] One more thing." },
+				{ type: "click", selector: "#e", say: "[[right]] Right-click the database." },
+				{ type: "click", selector: "#f", say: "[[structure]] Structure tools," },
+				{ type: "click", selector: "#g", say: "then [[view]] View Diagram." },
+				{ type: "wait", ms: 1200, say: "Payoff." },
+			] as unknown as DriveStepList["steps"];
+			const timings = validateNarration(
+				{
+					lines: Object.fromEntries(
+						durations.map((durationMs, i) => [
+							`s${i}`,
+							{ durationMs, marks: marks[i], speechStartMs: starts[i], speechEndMs: ends[i] },
+						]),
+					),
+				},
+				{ steps } as never,
+			);
+			const plan = continuousPlanFor({ steps }, timings);
+			const speechGaps = plan.steps.map((s, i) =>
+				i === 0 ? 0 : s.lineStartMs + starts[i]! - (plan.steps[i - 1]!.lineStartMs + ends[i - 1]!),
+			);
+			expect(speechGaps).toEqual(plan.steps.map((s) => s.gapBeforeMs));
+			// 300 everywhere except s6..s8, where the click before (cursor busy + 700 travel + 700 dwell)
+			// leaves the cursor too little time to reach the early mark: the line waits, never cut.
+			expect(plan.steps.map((s) => [s.lineStartMs, s.gapBeforeMs, s.delayMs])).toEqual([
+				[0, 0, 0],
+				[10781, 300, 0],
+				[14856, 300, 0],
+				[23065, 300, 0],
+				[28285, 300, 0],
+				[32113, 300, 0],
+				[33788, 835, 535],
+				[35538, 327, 27],
+				[37001, 450, 150],
+				[38493, 300, 0],
+			]);
+		});
+
+		it("validates the bounds in timings.json: both or neither, integers, inside the line", () => {
+			const steps = [{ type: "wait", ms: 100, say: "One." }] as unknown as DriveStepList["steps"];
+			const check = (line: Record<string, unknown>) =>
+				validateNarration({ lines: { s0: { durationMs: 1000, marks: {}, ...line } } }, {
+					steps,
+				} as never);
+			expect(() => check({})).not.toThrow();
+			expect(() => check({ speechStartMs: 400, speechEndMs: 1000 })).not.toThrow();
+			expect(() => check({ speechStartMs: 400 })).toThrow(/line "s0": .*only one is present/);
+			expect(() => check({ speechEndMs: 600 })).toThrow(/line "s0": .*only one is present/);
+			for (const bad of [
+				{ speechStartMs: 600, speechEndMs: 600 },
+				{ speechStartMs: -1, speechEndMs: 600 },
+				{ speechStartMs: 400, speechEndMs: 1001 },
+				{ speechStartMs: 400.5, speechEndMs: 600 },
+				{ speechStartMs: "400", speechEndMs: 600 },
+			]) {
+				expect(() => check(bad)).toThrow(/line "s0": speech bounds must be integers/);
+			}
 		});
 	});
 
