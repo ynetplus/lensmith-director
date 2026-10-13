@@ -19,9 +19,12 @@ import {
 	type NativeDemoDeps,
 	OLD_ENGINE_REGION_MESSAGE,
 	runDemo,
+	webCaptureTarget,
+	withViewportCapture,
 } from "../src/commands/demo.js";
 import { DriveError, type NarrationTimings } from "../src/commands/drive.js";
 import type { ActionLogEntry } from "../src/lib/actionLog.js";
+import { emitZoomRegions } from "../src/lib/zoomEmission.js";
 
 // These tests exercise `runDemo` — the stage sequencing `demo`'s CLI action
 // calls — against a FAKE `spawnFn` (no real `lensmith record`/`compose`/
@@ -275,6 +278,49 @@ describe("runDemo", () => {
 		const zoomsPath = argAfter(composeCall?.args ?? [], "--zooms");
 		const fragment = JSON.parse(readFileSync(zoomsPath, "utf-8"));
 		expect(fragment.zoomRegions).toHaveLength(2);
+	});
+
+	it("CR-LENSMITH-A011-7: a viewport recording composes with --padding 0; a window recording keeps the default", async () => {
+		const viewportRun = buildSpawnFn(happyPathHandlers());
+		await runDemo(
+			{ stepsPath, outDir },
+			{
+				spawnFn: viewportRun.spawnFn,
+				nodeBinPath: "node",
+				resolveEngineBinaryPath: () => "/fake/lensmith/dist/cli.js",
+				performDrive: async (_list, hooks) => {
+					await hooks.onWindowReady({ source: "region:0,112,1920,1080" });
+					return {
+						actionLog: FAKE_ACTION_LOG,
+						viewport: { width: 1920, height: 1080 },
+						viewportRect: { x: 0, y: 112, width: 1920, height: 1080 },
+					};
+				},
+				probeDurationMs: () => null,
+				readyTimeoutMs: 2000,
+				stopTimeoutMs: 2000,
+			},
+		);
+		const record = viewportRun.calls.find((c) => c.subcommand === "record");
+		expect(argAfter(record?.args ?? [], "--source")).toBe("region:0,112,1920,1080");
+		const compose = viewportRun.calls.find((c) => c.subcommand === "compose");
+		expect(argAfter(compose?.args ?? [], "--padding")).toBe("0");
+
+		const windowRun = buildSpawnFn(happyPathHandlers());
+		await runDemo(
+			{ stepsPath, outDir },
+			{
+				spawnFn: windowRun.spawnFn,
+				nodeBinPath: "node",
+				resolveEngineBinaryPath: () => "/fake/lensmith/dist/cli.js",
+				performDrive: fakePerformDrive(),
+				probeDurationMs: () => null,
+				readyTimeoutMs: 2000,
+				stopTimeoutMs: 2000,
+			},
+		);
+		const windowCompose = windowRun.calls.find((c) => c.subcommand === "compose");
+		expect(windowCompose?.args).not.toContain("--padding");
 	});
 
 	it("BF-15: records the driven window with --source window:<id> when the id is known, and starts the recorder before any step runs", async () => {
@@ -1183,6 +1229,87 @@ describe("chooseCapture (design note §6)", () => {
 			if (row.mode === "screen") expect(choice.capture).toEqual(DISPLAY);
 		});
 	}
+});
+
+describe("web capture: the page viewport, edge to edge (CR-LENSMITH-A011-7)", () => {
+	const RECT = { x: 0, y: 112, width: 1920, height: 1080 };
+	const web = { url: "http://localhost:8000/", steps: [{ type: "click", selector: "button" }] };
+
+	it('"auto" with a sized viewport records region:<viewport>', () => {
+		// biome-ignore lint/suspicious/noExplicitAny: partial step list
+		const choice = chooseCapture(web as any, {
+			window: null,
+			display: DISPLAY,
+			viewportRect: RECT,
+		});
+		expect(choice.mode).toBe("viewport");
+		expect(choice.source).toBe("region:0,112,1920,1080");
+		expect(choice.capture).toEqual(RECT);
+		// biome-ignore lint/suspicious/noExplicitAny: partial step list
+		expect(webCaptureTarget(web as any, 42, DISPLAY, RECT)).toEqual({
+			source: "region:0,112,1920,1080",
+		});
+	});
+
+	it('a declared "window" records window:<id> as before (no viewport sizing)', () => {
+		const list = { ...web, capture: "window" };
+		// biome-ignore lint/suspicious/noExplicitAny: partial step list
+		expect(webCaptureTarget(list as any, 42, undefined, undefined)).toBe(42);
+	});
+
+	it("a declared region or screen still wins over the viewport", () => {
+		const region = { ...web, capture: { region: { x: 10, y: 20, width: 800, height: 450 } } };
+		// biome-ignore lint/suspicious/noExplicitAny: partial step list
+		expect(webCaptureTarget(region as any, 42, DISPLAY, RECT)).toEqual({
+			source: "region:10,20,800,450",
+		});
+		// biome-ignore lint/suspicious/noExplicitAny: partial step list
+		expect(webCaptureTarget({ ...web, capture: "screen" } as any, 42, DISPLAY, RECT)).toEqual({
+			source: undefined,
+		});
+	});
+
+	it("auto without a sized viewport (no CDP) keeps the window capture", () => {
+		// biome-ignore lint/suspicious/noExplicitAny: partial step list
+		expect(webCaptureTarget(web as any, 42, DISPLAY, undefined)).toBe(42);
+	});
+
+	it("a list with native steps never records the viewport", () => {
+		const list = {
+			...web,
+			apps: [{ bundleId: LAUNCHER }],
+			steps: [{ type: "click", app: LAUNCHER, ax: { role: "AXButton" } }],
+		};
+		// biome-ignore lint/suspicious/noExplicitAny: partial step list
+		const choice = chooseCapture(list as any, {
+			window: null,
+			display: DISPLAY,
+			viewportRect: RECT,
+		});
+		expect(choice.mode).toBe("screen");
+	});
+
+	it("a click at page point (960, 540) of the 1920x1096 page zooms on (0.5, 0.5) of the top 1920x1080 capture", () => {
+		const log: ActionLogEntry[] = [
+			{
+				index: 0,
+				type: "click",
+				selector: "button",
+				atMs: 500,
+				settleMs: 100,
+				settleReason: "quiet",
+				boundingBox: { x: 900, y: 520, width: 120, height: 40 },
+			} as ActionLogEntry,
+		];
+		const driven = withViewportCapture(
+			{ actionLog: log, viewport: { width: 1920, height: 1096 } },
+			RECT,
+		);
+		expect(driven.viewport).toEqual({ width: 1920, height: 1080 });
+		expect(driven.viewportRect).toEqual(RECT);
+		const { fragment } = emitZoomRegions(driven.actionLog, driven.viewport);
+		expect(fragment.zoomRegions[0]?.focus).toEqual({ cx: 0.5, cy: 0.5 });
+	});
 });
 
 const NATIVE_ACTION_LOG: ActionLogEntry[] = [

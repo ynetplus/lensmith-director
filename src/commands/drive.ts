@@ -438,6 +438,8 @@ export interface RunDriveResult {
 	viewport: ViewportSize;
 	/** CR-LENSMITH-A011-6: the continuous plan the run followed; absent in settle mode. */
 	plan?: ContinuousPlan;
+	/** CR-LENSMITH-A011-7: the recorded page viewport's screen rect (points), when one was sized. */
+	viewportRect?: CaptureRegion;
 }
 
 /**
@@ -707,6 +709,134 @@ export async function pinWindowBounds(
 		);
 		return false;
 	}
+}
+
+/**
+ * CR-LENSMITH-A011-7: the page viewport a web `demo` sizes, in points. macOS rounds the window's
+ * bottom corners (about 14 pt), so the page area is {@link VIEWPORT_CORNER_ALLOWANCE} taller than
+ * the frame and only its top 1920x1080 is recorded (no tab strip, no address bar, no window frame,
+ * no desktop; 3840x2160 at 2x). The page's bottom 16 pt are off-frame by design.
+ */
+export const DRIVEN_VIEWPORT = { width: 1920, height: 1096 } as const;
+
+/** CR-LENSMITH-A011-7: the page rows below the recorded frame that keep the rounded corners out. */
+export const VIEWPORT_CORNER_ALLOWANCE = 16;
+
+/** The six window measurements one `page.evaluate` reads (CSS px = points at 100% zoom). */
+export interface WindowMetrics {
+	screenX: number;
+	screenY: number;
+	outerWidth: number;
+	outerHeight: number;
+	innerWidth: number;
+	innerHeight: number;
+}
+
+/**
+ * CR-LENSMITH-A011-7: where the page viewport sits on screen, in points. Pure. The browser frame
+ * is split evenly left and right; everything above the viewport (tab strip, address bar) is on top.
+ */
+export function viewportScreenRect(m: WindowMetrics): CaptureRegion {
+	return {
+		x: Math.round(m.screenX + (m.outerWidth - m.innerWidth) / 2),
+		y: Math.round(m.screenY + (m.outerHeight - m.innerHeight)),
+		width: Math.round(m.innerWidth),
+		height: Math.round(m.innerHeight),
+	};
+}
+
+/**
+ * CR-LENSMITH-A011-7: the viewport size to ask for. {@link DRIVEN_VIEWPORT} when the window (that
+ * viewport plus the browser frame, placed at {@link DRIVEN_WINDOW}'s position) fits the display;
+ * otherwise the largest 16:9 frame with a width that is a multiple of 16 that does, plus the
+ * {@link VIEWPORT_CORNER_ALLOWANCE} rows below it. Pure.
+ */
+export function fitDrivenViewport(
+	display: { width: number; height: number },
+	frame: { width: number; height: number },
+): { width: number; height: number } {
+	const k = Math.max(
+		1,
+		Math.min(
+			DRIVEN_VIEWPORT.width / 16,
+			Math.floor((display.width - DRIVEN_WINDOW.x - frame.width) / 16),
+			Math.floor((display.height - DRIVEN_WINDOW.y - frame.height - VIEWPORT_CORNER_ALLOWANCE) / 9),
+		),
+	);
+	return { width: 16 * k, height: 9 * k + VIEWPORT_CORNER_ALLOWANCE };
+}
+
+const readWindowMetrics = (): WindowMetrics => ({
+	screenX: window.screenX,
+	screenY: window.screenY,
+	outerWidth: window.outerWidth,
+	outerHeight: window.outerHeight,
+	innerWidth: window.innerWidth,
+	innerHeight: window.innerHeight,
+});
+
+/** How long the resized window gets to report its new inner size before the run is refused. */
+const VIEWPORT_RESIZE_ATTEMPTS = 20;
+const VIEWPORT_RESIZE_INTERVAL_MS = 100;
+
+/**
+ * CR-LENSMITH-A011-7: sizes the driven window through CDP so its page viewport is exactly
+ * {@link DRIVEN_VIEWPORT} (or the shrunk size {@link fitDrivenViewport} picks on a small display,
+ * said once on `log`), then returns the recorded rect: the TOP 16:9 part of the viewport's screen
+ * rect, so the rounded bottom corners stay outside the frame. Returns null when the context has
+ * no CDP session (the caller keeps the window capture). Throws {@link DriveError} naming the actual
+ * inner size when the resize does not land exactly, so no recording starts on a wrong frame.
+ */
+export async function sizeDrivenViewport(options: {
+	context: PersistentContextLike;
+	page: PageLike;
+	display: { width: number; height: number };
+	sleep: (ms: number) => Promise<void>;
+	log: (line: string) => void;
+}): Promise<CaptureRegion | null> {
+	const { context, page, display, sleep, log } = options;
+	if (!context.newCDPSession) return null;
+	const before = await page.evaluate<WindowMetrics, undefined>(readWindowMetrics, undefined);
+	const frame = {
+		width: before.outerWidth - before.innerWidth,
+		height: before.outerHeight - before.innerHeight,
+	};
+	const target = fitDrivenViewport(display, frame);
+	const recordedHeight = target.height - VIEWPORT_CORNER_ALLOWANCE;
+	if (target.width !== DRIVEN_VIEWPORT.width) {
+		log(
+			`drive: the display (${display.width}x${display.height} points) cannot fit a ` +
+				`${DRIVEN_VIEWPORT.width}x${DRIVEN_VIEWPORT.height} viewport — recording ${target.width}x${recordedHeight}`,
+		);
+	}
+	const session = await context.newCDPSession(page);
+	try {
+		const win = (await session.send("Browser.getWindowForTarget")) as { windowId: number };
+		await session.send("Browser.setWindowBounds", {
+			windowId: win.windowId,
+			bounds: {
+				windowState: "normal",
+				left: DRIVEN_WINDOW.x,
+				top: DRIVEN_WINDOW.y,
+				width: target.width + frame.width,
+				height: target.height + frame.height,
+			},
+		});
+	} finally {
+		await session.detach?.().catch(() => undefined);
+	}
+	let after = before;
+	for (let i = 0; i < VIEWPORT_RESIZE_ATTEMPTS; i++) {
+		after = await page.evaluate<WindowMetrics, undefined>(readWindowMetrics, undefined);
+		if (after.innerWidth === target.width && after.innerHeight === target.height) {
+			return { ...viewportScreenRect(after), height: recordedHeight };
+		}
+		if (i < VIEWPORT_RESIZE_ATTEMPTS - 1) await sleep(VIEWPORT_RESIZE_INTERVAL_MS);
+	}
+	throw new DriveError(
+		`could not size the browser viewport to ${target.width}x${target.height} — it is ` +
+			`${after.innerWidth}x${after.innerHeight} after the resize`,
+	);
 }
 
 /** BF-17: makes the process with this PID the frontmost application. */

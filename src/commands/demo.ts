@@ -91,6 +91,7 @@ import {
 	type RunDriveResult,
 	readNarrationTimings,
 	runDrive,
+	sizeDrivenViewport,
 	validateContinuousSteps,
 	withLaunchedChrome,
 } from "./drive.js";
@@ -369,6 +370,7 @@ async function defaultPerformDrive(
 			async (ctx, choreographer, windowId) => {
 				const page = await acquirePage(ctx);
 				let native: Parameters<typeof runDrive>[1]["native"];
+				let viewportRect: CaptureRegion | undefined;
 				if (withNative && driver) {
 					await driver.start?.();
 					const activate = nativeDeps.activate ?? activateProcessMac;
@@ -382,8 +384,24 @@ async function defaultPerformDrive(
 					native = { driver, pids: roll.pids, capture: choice.capture, activate };
 					await hooks.onWindowReady({ source: choice.source });
 				} else {
-					// BF-15: the window exists now, so the recorder can start on it — before any step runs.
-					await hooks.onWindowReady(windowId);
+					const declared = list.capture ?? "auto";
+					const display =
+						declared === "window"
+							? undefined
+							: await (nativeDeps?.mainDisplayBounds ?? mainDisplayBoundsMac)();
+					if (declared === "auto" && display !== undefined) {
+						// CR-LENSMITH-A011-7: size the page viewport to 1920x1096 points and record its top 1920x1080.
+						viewportRect =
+							(await sizeDrivenViewport({
+								context: ctx,
+								page,
+								display,
+								sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+								log: (line) => console.error(line),
+							})) ?? undefined;
+					}
+					// BF-15: the window exists now, so the recorder can start — before any step runs.
+					await hooks.onWindowReady(webCaptureTarget(list, windowId, display, viewportRect));
 				}
 				try {
 					await choreographer.start();
@@ -395,7 +413,9 @@ async function defaultPerformDrive(
 					});
 					// Boxes are in capture space when native: the zoom frame is the capture.
 					return native?.capture === undefined
-						? result
+						? viewportRect === undefined
+							? result
+							: withViewportCapture(result, viewportRect)
 						: {
 								...result,
 								viewport: { width: native.capture.width, height: native.capture.height },
@@ -568,7 +588,7 @@ export async function checkNativeReadiness(
 
 /** What `chooseCapture` decided: the engine `--source` (undefined = whole screen) and the capture rect. */
 export interface CaptureChoice {
-	mode: "window" | "region" | "screen";
+	mode: "window" | "region" | "screen" | "viewport";
 	source?: string;
 	capture: CaptureRegion;
 	/** Set when a declared or preferred choice had to fall back (printed to stderr). */
@@ -580,6 +600,8 @@ export interface ChooseCaptureContext {
 	window: ChromeWindowInfo | null;
 	/** The main display's bounds in screen points. */
 	display: CaptureRegion;
+	/** CR-LENSMITH-A011-7: the driven page viewport's screen rect, for a web list (no native steps). */
+	viewportRect?: CaptureRegion;
 }
 
 function locatorsInStep(step: DriveStepList["steps"][number]): AxLocator[] {
@@ -590,8 +612,9 @@ function locatorsInStep(step: DriveStepList["steps"][number]): AxLocator[] {
 /**
  * Picks the capture for a native list (design note §6). Pure. A declared region wins; `window`
  * (or `auto` with one app, no `activate` step, no menu bar or status bar locator, and a window
- * found) records that window; everything else records the main display. A list with a `url`
- * never records a window: the browser and the native app share the frame, so a window choice
+ * found) records that window; everything else records the main display. A web list (a `url`, no
+ * native steps) under `auto` with a sized viewport records that viewport (CR-LENSMITH-A011-7). A
+ * list with a `url` and native steps never records a window: the browser and the native app share the frame, so a window choice
  * falls back to the screen.
  */
 export function chooseCapture(list: DriveStepList, ctx: ChooseCaptureContext): CaptureChoice {
@@ -611,6 +634,21 @@ export function chooseCapture(list: DriveStepList, ctx: ChooseCaptureContext): C
 		};
 	}
 	if (declared === "screen") return screen();
+
+	// CR-LENSMITH-A011-7: a web list under `auto` records the page viewport only.
+	if (
+		declared === "auto" &&
+		ctx.viewportRect !== undefined &&
+		list.url !== undefined &&
+		!hasNativeSteps(list)
+	) {
+		const r = ctx.viewportRect;
+		return {
+			mode: "viewport",
+			source: `region:${r.x},${r.y},${r.width},${r.height}`,
+			capture: { ...r },
+		};
+	}
 
 	const webAndNative = list.url !== undefined;
 	if (declared === "window") {
@@ -635,6 +673,46 @@ export function chooseCapture(list: DriveStepList, ctx: ChooseCaptureContext): C
 		return windowChoice(ctx.window);
 	}
 	return screen();
+}
+
+/**
+ * CR-LENSMITH-A011-7: a viewport run's drive result. Pure. The recorded region is the top of the
+ * page viewport (same origin), so page points are capture points and `viewport` becomes the capture
+ * size (1920x1080, not the 1920x1096 page area) — the zoom and cursor normalisation stay unchanged.
+ */
+export function withViewportCapture<T extends { viewport: { width: number; height: number } }>(
+	result: T,
+	viewportRect: CaptureRegion,
+): T & { viewportRect: CaptureRegion } {
+	return {
+		...result,
+		viewport: { width: viewportRect.width, height: viewportRect.height },
+		viewportRect,
+	};
+}
+
+/**
+ * CR-LENSMITH-A011-7: what a web list (a `url`, no native steps) records — the `onWindowReady`
+ * target. Pure. A declared `"window"` (or no sized viewport) records the driven window by id, as
+ * before; `auto` with a sized viewport records `region:<viewport>`; a declared `"screen"` or
+ * `{region}` wins as {@link chooseCapture} decides.
+ */
+export function webCaptureTarget(
+	list: DriveStepList,
+	windowId: number | null,
+	display: CaptureRegion | undefined,
+	viewportRect: CaptureRegion | undefined,
+): number | null | { source: string | undefined } {
+	const declared = list.capture ?? "auto";
+	if (declared === "window" || display === undefined) return windowId;
+	if (declared === "auto" && viewportRect === undefined) return windowId;
+	return {
+		source: chooseCapture(list, {
+			window: null,
+			display,
+			...(viewportRect !== undefined ? { viewportRect } : {}),
+		}).source,
+	};
 }
 
 function windowChoice(w: ChromeWindowInfo): CaptureChoice {
@@ -1124,6 +1202,8 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 				paths.rawVideo,
 				"--out",
 				paths.projectFile,
+				// CR-LENSMITH-A011-7: a viewport recording fills the film; no wallpaper border.
+				...(drivenResult.viewportRect !== undefined ? ["--padding", "0"] : []),
 			]);
 			if (code !== 0) throw new Error(`compose exited with code ${code}`);
 		} catch (error) {
