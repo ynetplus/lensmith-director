@@ -81,12 +81,13 @@ export const SAME_SPOT_MAX_DISTANCE = 0.12;
 const ZOOM_DEPTH = 3;
 
 /**
- * The film's time base (CR-LENSMITH-A008-6): the recording starts at the action log's `t0`, so an
- * action-log time IS the film time (identity, floored at 0). Zoom regions and the narration's
- * voice starts both go through this one function, so voice and camera cannot drift apart.
+ * The film's time base (CR-LENSMITH-A008-6, BF-27): the recording starts `leadMs` BEFORE the action
+ * log's `t0` (the recorder is started before the page is navigated, BF-15), so a film time is the
+ * log time plus that lead, floored at 0. `leadMs = 0` is the old identity. Zoom regions and the
+ * narration's voice starts all go through this one function, so voice and camera cannot drift apart.
  */
-export function logMsToFilmMs(logMs: number): number {
-	return Math.max(0, logMs);
+export function logMsToFilmMs(logMs: number, leadMs = 0): number {
+	return Math.max(0, logMs + leadMs);
 }
 
 type ZoomableEntry =
@@ -223,8 +224,9 @@ export function emitZoomRegions(
 	actionLog: ActionLogEntry[],
 	viewport: ViewportSize,
 	shots?: readonly ShotName[],
-	options: { continuous?: boolean } = {},
+	options: { continuous?: boolean; leadMs?: number } = {},
 ): EmitZoomRegionsResult {
+	const leadMs = options.leadMs ?? 0;
 	const warnings: string[] = [];
 	const zoomRegions: ZoomRegion[] = [];
 	const closedAtMs: Record<string, number> = {};
@@ -242,6 +244,7 @@ export function emitZoomRegions(
 					// Round 2 (CR-LENSMITH-A011-10): a `wide` line closes the region at its START too, so the
 					// zoom-out plays under the first words and the first point is already at 1x.
 					voiceStart !== undefined ? voiceStart : entryStartMs(entry),
+					leadMs,
 				);
 				last.endMs = Math.max(last.startMs, at);
 				last.connect = false;
@@ -251,7 +254,8 @@ export function emitZoomRegions(
 			continue;
 		}
 		if (shot === "hold") {
-			if (last && !lastClosed) last.endMs = Math.max(last.endMs, logMsToFilmMs(entryEndMs(entry)));
+			if (last && !lastClosed)
+				last.endMs = Math.max(last.endMs, logMsToFilmMs(entryEndMs(entry), leadMs));
 			continue;
 		}
 		if (!isZoomableEntry(entry)) continue;
@@ -261,9 +265,12 @@ export function emitZoomRegions(
 		const cx = clampUnit(centerX / viewport.width, `focus.cx for step ${entry.index}`, warnings);
 		const cy = clampUnit(centerY / viewport.height, `focus.cy for step ${entry.index}`, warnings);
 		const focus = { cx, cy };
-		const endMs = zoomEndMs(entry) + entry.settleMs + SETTLE_PACING.resultHoldMs;
+		const endMs = logMsToFilmMs(
+			zoomEndMs(entry) + entry.settleMs + SETTLE_PACING.resultHoldMs,
+			leadMs,
+		);
 
-		let startMs = logMsToFilmMs(zoomStartMs(entry));
+		let startMs = logMsToFilmMs(zoomStartMs(entry), leadMs);
 		const open = last && !lastClosed ? last : undefined;
 		if (
 			open &&

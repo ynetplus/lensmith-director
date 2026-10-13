@@ -217,6 +217,8 @@ export interface RunDriveDeps {
 	choreographer: ChoreographerLike;
 	/** Injectable clock (ms). Production uses a real monotonic clock; tests want determinism. */
 	now?: () => number;
+	/** BF-27: injectable wall clock (epoch ms) read at `t0` for {@link RunDriveResult.t0Epoch}. */
+	nowEpoch?: () => number;
 	/** Injectable sleep. Production waits for real; tests skip the real delay. */
 	sleep?: (ms: number) => Promise<void>;
 	/**
@@ -521,6 +523,11 @@ export interface RunDriveResult {
 	plan?: ContinuousPlan;
 	/** CR-LENSMITH-A011-7: the recorded page viewport's screen rect (points), when one was sized. */
 	viewportRect?: CaptureRegion;
+	/**
+	 * BF-27: the wall clock (epoch ms) at the action log's `t0`. `demo` subtracts the moment the
+	 * recorder reported ready to get the film lead. Absent from a driver that does not report it.
+	 */
+	t0Epoch?: number;
 }
 
 /**
@@ -1763,6 +1770,7 @@ export async function runDrive(
 	if (stepList.url === undefined) {
 		const capture = deps.native?.capture;
 		const t0 = now();
+		const t0Epoch = (deps.nowEpoch ?? Date.now)();
 		const actionLog = await runSteps(stepList, deps, {
 			now,
 			sleep,
@@ -1774,8 +1782,8 @@ export async function runDrive(
 		});
 		const nativeViewport = { width: capture?.width ?? 0, height: capture?.height ?? 0 };
 		return plan
-			? { actionLog, viewport: nativeViewport, plan }
-			: { actionLog, viewport: nativeViewport };
+			? { actionLog, viewport: nativeViewport, plan, t0Epoch }
+			: { actionLog, viewport: nativeViewport, t0Epoch };
 	}
 
 	const navigationTimeoutMs = deps.navigationTimeoutMs ?? DEFAULT_NAVIGATION_TIMEOUT_MS;
@@ -1795,6 +1803,7 @@ export async function runDrive(
 		);
 	}
 	const t0 = now();
+	const t0Epoch = (deps.nowEpoch ?? Date.now)();
 
 	// OS-level "did the window actually win the foreground" is not verifiable
 	// headless or against a fake page — it can only be confirmed by an
@@ -1838,7 +1847,7 @@ export async function runDrive(
 		offset,
 		viewport,
 	});
-	return plan ? { actionLog, viewport, plan } : { actionLog, viewport };
+	return plan ? { actionLog, viewport, plan, t0Epoch } : { actionLog, viewport, t0Epoch };
 }
 
 /** Moves a web step's viewport box into capture space (screen = viewport + calibration offset). */
@@ -2123,11 +2132,12 @@ export function continuousZoomFragment(
 	actionLog: readonly ActionLogEntry[],
 	endMs: number,
 	closedAtMs: Readonly<Record<string, number>> = {},
+	leadMs = 0,
 ): ZoomFragment {
 	const travelStartOf = (region: ZoomRegion): number => {
 		const entry = actionLog.find((e) => `zoom-${e.index}` === region.id);
 		if (!entry) return region.startMs;
-		return logMsToFilmMs("startedAtMs" in entry ? entry.startedAtMs : entry.atMs);
+		return logMsToFilmMs("startedAtMs" in entry ? entry.startedAtMs : entry.atMs, leadMs);
 	};
 	const starts = fragment.zoomRegions.map(travelStartOf);
 	return {
@@ -2141,7 +2151,7 @@ export function continuousZoomFragment(
 				endMs: Math.max(
 					startMs,
 					Math.min(
-						nextStartMs ?? logMsToFilmMs(endMs),
+						nextStartMs ?? logMsToFilmMs(endMs, leadMs),
 						closedAtMs[region.id] ?? Number.POSITIVE_INFINITY,
 					),
 				),

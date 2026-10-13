@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { continuousZoomFragment } from "../src/commands/drive.js";
 import type { ActionLogEntry } from "../src/lib/actionLog.js";
 import { SETTLE_PACING } from "../src/lib/timing.js";
-import { emitZoomRegions } from "../src/lib/zoomEmission.js";
+import { emitZoomRegions, logMsToFilmMs } from "../src/lib/zoomEmission.js";
 
 const VIEWPORT = { width: 1000, height: 500 };
 
@@ -620,6 +620,52 @@ describe("CR-LENSMITH-A011-9 shot grammar in emitZoomRegions", () => {
 			connect: false,
 		});
 		expect(result.closedAtMs).toEqual({ "zoom-7": 37817 });
+	});
+
+	describe("BF-27: the film lead (recording started before t0)", () => {
+		const log = JSON.parse(
+			readFileSync(new URL("./fixtures/action-logs/dbx-v8.json", import.meta.url), "utf-8"),
+		) as ActionLogEntry[];
+		const shots = [...PILOT_SHOTS.slice(0, 9), "wide"] as const;
+		const continuousAt = (leadMs?: number) => {
+			const emitted = emitZoomRegions(log, PILOT_VIEWPORT, shots, {
+				continuous: true,
+				...(leadMs !== undefined ? { leadMs } : {}),
+			});
+			return continuousZoomFragment(emitted.fragment, log, 48833, emitted.closedAtMs, leadMs);
+		};
+		const settleAt = (leadMs?: number) =>
+			emitZoomRegions(
+				PILOT_LOG,
+				PILOT_VIEWPORT,
+				PILOT_SHOTS,
+				leadMs !== undefined ? { leadMs } : {},
+			).fragment;
+
+		it("logMsToFilmMs adds the lead and floors at 0; lead 0 is the identity", () => {
+			expect(logMsToFilmMs(1234)).toBe(1234);
+			expect(logMsToFilmMs(1234, 0)).toBe(1234);
+			expect(logMsToFilmMs(1234, 400)).toBe(1634);
+			expect(logMsToFilmMs(-50)).toBe(0);
+			expect(logMsToFilmMs(-500, 400)).toBe(0);
+		});
+
+		it("lead 0 reproduces today's output byte for byte (continuous and settle)", () => {
+			expect(JSON.stringify(continuousAt(0))).toBe(JSON.stringify(continuousAt()));
+			expect(JSON.stringify(settleAt(0))).toBe(JSON.stringify(settleAt()));
+		});
+
+		it("lead 400 shifts every region start and end by 400 ms (continuous and settle)", () => {
+			for (const [base, shifted] of [
+				[continuousAt(), continuousAt(400)],
+				[settleAt(), settleAt(400)],
+			] as const) {
+				expect(shifted.zoomRegions.length).toBeGreaterThan(0);
+				expect(shifted.zoomRegions).toEqual(
+					base.zoomRegions.map((r) => ({ ...r, startMs: r.startMs + 400, endMs: r.endMs + 400 })),
+				);
+			}
+		});
 	});
 
 	describe("the real DBX v8 action log (fixture, CR-LENSMITH-A011-10 round 2)", () => {

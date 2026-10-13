@@ -1051,6 +1051,67 @@ describe("runDemo: narrate stage (CR-LENSMITH-A008-5)", () => {
 		expect(byName.get("voice-starts")?.path).toBe(startsPath);
 	});
 
+	it("BF-27: a recording that reported ready 400 ms before t0 shifts voice-starts.json and zooms.json 400 ms later than the log", async () => {
+		const run = async (t0Epoch: number | undefined) => {
+			const { spawnFn } = buildSpawnFn(narratedHandlers());
+			await runDemo(
+				{ stepsPath, outDir },
+				{
+					spawnFn,
+					resolveEngineBinaryPath: () => "/fake/lensmith/dist/cli.js",
+					performDrive: async (stepList, hooks) => ({
+						...(await narratedDrive(stepList, hooks)),
+						...(t0Epoch !== undefined ? { t0Epoch } : {}),
+					}),
+					probeDurationMs: () => 1000,
+					readyTimeoutMs: 2000,
+					stopTimeoutMs: 2000,
+					clock: () => 1_000_000, // the fake engine's ready line is stamped here
+				},
+			);
+			return {
+				starts: JSON.parse(readFileSync(path.join(outDir, "voice-starts.json"), "utf-8")),
+				zooms: JSON.parse(readFileSync(path.join(outDir, "zooms.json"), "utf-8")),
+			};
+		};
+		const logClock = await run(1_000_000); // lead 0: today's output
+		const unreported = await run(undefined); // a driver without t0Epoch: lead 0 too
+		expect(unreported).toEqual(logClock);
+		expect(logClock.starts).toEqual({ s0: 1235, s2: 5000 });
+
+		const lead = await run(1_000_400);
+		expect(lead.starts).toEqual({ s0: 1635, s2: 5400 });
+		expect(lead.zooms.zoomRegions).toHaveLength(logClock.zooms.zoomRegions.length);
+		lead.zooms.zoomRegions.forEach((region: { startMs: number; endMs: number }, i: number) => {
+			expect(region.startMs).toBe(logClock.zooms.zoomRegions[i].startMs + 400);
+			expect(region.endMs).toBe(logClock.zooms.zoomRegions[i].endMs + 400);
+		});
+	});
+
+	it("BF-27: refuses a negative or over-5000 ms film lead at stage 'record'", async () => {
+		for (const t0Epoch of [999_999, 1_005_001]) {
+			const { spawnFn } = buildSpawnFn(narratedHandlers());
+			const error = await runDemo(
+				{ stepsPath, outDir },
+				{
+					spawnFn,
+					resolveEngineBinaryPath: () => "/fake/lensmith/dist/cli.js",
+					performDrive: async (stepList, hooks) => ({
+						...(await narratedDrive(stepList, hooks)),
+						t0Epoch,
+					}),
+					probeDurationMs: () => 1000,
+					readyTimeoutMs: 2000,
+					stopTimeoutMs: 2000,
+					clock: () => 1_000_000,
+				},
+			).catch((e: unknown) => e);
+			expect(error).toBeInstanceOf(DemoError);
+			expect((error as DemoError).stage).toBe("record");
+			expect((error as DemoError).message).toMatch(/film lead -?\d+ ms is outside 0\.\.5000 ms/);
+		}
+	});
+
 	it("voice: omits --captions when none was asked for (engine default burns)", async () => {
 		const { spawnFn, calls } = buildSpawnFn(narratedHandlers());
 		await runDemo(
