@@ -1,4 +1,6 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { continuousZoomFragment } from "../src/commands/drive.js";
 import type { ActionLogEntry } from "../src/lib/actionLog.js";
 import { SETTLE_PACING } from "../src/lib/timing.js";
 import { emitZoomRegions } from "../src/lib/zoomEmission.js";
@@ -398,17 +400,34 @@ describe("CR-LENSMITH-A011-9 shot grammar in emitZoomRegions", () => {
 		});
 	});
 
-	it("same spot but starting more than 1500 ms after the previous end keeps two regions", () => {
+	it("same spot merges with no time limit (round 2): a close 10 s later still shares the region", () => {
 		const log = [
 			clickEntry({ index: 0, startedAtMs: 1000, clickedAtMs: 1400, settleMs: 400 }),
 			clickEntry({
 				index: 1,
-				startedAtMs: 1400 + 400 + hold + 1501,
-				clickedAtMs: 6000,
+				startedAtMs: 1400 + 400 + hold + 10_000,
+				clickedAtMs: 14_000,
 				settleMs: 0,
 			}),
 		];
-		expect(emitZoomRegions(log, VIEWPORT, ["close", "close"]).fragment.zoomRegions).toHaveLength(2);
+		const regions = emitZoomRegions(log, VIEWPORT, ["close", "close"]).fragment.zoomRegions;
+		expect(regions).toHaveLength(1);
+		expect(regions[0]).toMatchObject({ id: "zoom-0", startMs: 1000, endMs: 14_000 + hold });
+	});
+
+	it("a near close target that fits the open zoomed frame pans (connect) and, continuous, never closes between", () => {
+		// 1000x500 viewport at 1.8x: frame 555x277 around (120,60) clamps to x 0..555, y 0..277.
+		const near = { x: 300, y: 150, width: 40, height: 20 };
+		const log = [
+			clickEntry({ index: 0 }),
+			clickEntry({ index: 1, startedAtMs: 3000, clickedAtMs: 3400, boundingBox: near }),
+		];
+		const emitted = emitZoomRegions(log, VIEWPORT, ["close", "close"]);
+		expect(emitted.fragment.zoomRegions).toHaveLength(2);
+		expect(emitted.fragment.zoomRegions[0]?.connect).toBe(true);
+		expect(emitted.fragment.zoomRegions[1]?.startMs).toBe(3000);
+		const continuous = continuousZoomFragment(emitted.fragment, log, 9000, emitted.closedAtMs);
+		expect(continuous.zoomRegions[0]?.endMs).toBe(continuous.zoomRegions[1]?.startMs);
 	});
 
 	it("follow connects to the previous region even when the target is outside its frame", () => {
@@ -551,12 +570,11 @@ describe("CR-LENSMITH-A011-9 shot grammar in emitZoomRegions", () => {
 			const b = regions[i] as (typeof regions)[number];
 			const sameSpot =
 				Math.abs(a.focus.cx - b.focus.cx) <= 0.12 && Math.abs(a.focus.cy - b.focus.cy) <= 0.12;
-			const gap = b.startMs - a.endMs;
-			expect(sameSpot && gap <= 1500 && !a.connect).toBe(false);
+			expect(sameSpot && !a.connect).toBe(false);
 		}
-		expect(regions.map((r) => r.id)).toEqual(["zoom-1", "zoom-2", "zoom-3", "zoom-4", "zoom-7"]);
-		const r4 = regions.find((r) => r.id === "zoom-4");
-		expect(r4?.connect).toBe(true);
+		expect(regions.map((r) => r.id)).toEqual(["zoom-1", "zoom-2", "zoom-7"]);
+		const r2 = regions.find((r) => r.id === "zoom-2");
+		expect(r2?.connect).toBe(true);
 		// step 9 is a hold: the last region lasts to the end of the payoff wait
 		expect(regions.at(-1)?.endMs).toBe(38390 + 1200);
 	});
@@ -570,5 +588,58 @@ describe("CR-LENSMITH-A011-9 shot grammar in emitZoomRegions", () => {
 			connect: false,
 		});
 		expect(result.closedAtMs).toEqual({ "zoom-7": 38390 });
+	});
+
+	describe("the real DBX v7 action log (fixture, round 2)", () => {
+		const log = JSON.parse(
+			readFileSync(new URL("./fixtures/action-logs/dbx-v7.json", import.meta.url), "utf-8"),
+		) as ActionLogEntry[];
+		const emitted = emitZoomRegions(log, PILOT_VIEWPORT, PILOT_SHOTS);
+		const regions = emitted.fragment.zoomRegions;
+
+		it("emits zoom-1, zoom-2 (steps 2 to 6) and zoom-7 (steps 7 to 9)", () => {
+			console.log(
+				"DBX v7 regions:",
+				JSON.stringify(
+					regions.map((r) => ({
+						id: r.id,
+						startMs: Math.round(r.startMs),
+						endMs: Math.round(r.endMs),
+						cx: Number(r.focus.cx.toFixed(3)),
+						cy: Number(r.focus.cy.toFixed(3)),
+						connect: r.connect,
+					})),
+				),
+			);
+			expect(regions.map((r) => r.id)).toEqual(["zoom-1", "zoom-2", "zoom-7"]);
+		});
+
+		it("Run -> Open Redis (same spot, 2.4 s apart) are one region", () => {
+			const r2 = regions.find((r) => r.id === "zoom-2");
+			expect(regions.some((r) => r.id === "zoom-3" || r.id === "zoom-4")).toBe(false);
+			// zoom-2 covers the key press (step 3) and the Open Redis click (step 4) through step 6
+			expect(r2?.endMs).toBeGreaterThan(34355);
+		});
+
+		it("steps 6 to 8 stay one connected sequence (zoom-2 pans into zoom-7, View Diagram merged)", () => {
+			expect(regions.find((r) => r.id === "zoom-2")?.connect).toBe(true);
+			// View Diagram (step 8) merged in, and the step 9 hold carries it to the payoff's end
+			expect(regions.find((r) => r.id === "zoom-7")?.endMs).toBeCloseTo(
+				Math.max(37851.902624999995 + 538 + SETTLE_PACING.resultHoldMs, 38389.64225 + 1200),
+				3,
+			);
+		});
+
+		it("Open Postgres -> Type the query: the gutter box does not fit Open Postgres's 1.8x frame, so no pan", () => {
+			// Open Postgres focus (893, 385.5) -> frame x 360..1427 (inner 445..1341 with the margin);
+			// the gutter box starts at x 288. fitsInZoomedFrame is false: the pair zooms out and in.
+			expect(regions.find((r) => r.id === "zoom-1")?.connect).toBe(false);
+		});
+
+		it("continuous mode: every connected region ends where the next starts", () => {
+			const continuous = continuousZoomFragment(emitted.fragment, log, 48517, emitted.closedAtMs);
+			const [, z2, z7] = continuous.zoomRegions;
+			expect(z2?.endMs).toBe(z7?.startMs);
+		});
 	});
 });
