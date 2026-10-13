@@ -70,7 +70,13 @@ import {
 	SETTLE_PACING,
 	travelMs,
 } from "../lib/timing.js";
-import { emitZoomRegions, type ViewportSize } from "../lib/zoomEmission.js";
+import {
+	emitZoomRegions,
+	logMsToFilmMs,
+	type ViewportSize,
+	type ZoomFragment,
+	type ZoomRegion,
+} from "../lib/zoomEmission.js";
 
 export class DriveError extends Error {}
 
@@ -229,6 +235,12 @@ export interface RunDriveDeps {
 	 * without narration, drive exactly as before.
 	 */
 	narration?: NarrationTimings;
+	/**
+	 * CR-LENSMITH-A011-6: `continuous` drives to {@link continuousPlanFor} (Settle LOCK v1.1):
+	 * every step needs `say` and `narration`; no hold to line end + 600 and no breath. Omitted or
+	 * `settle`: exactly as before.
+	 */
+	narrationMode?: NarrationMode;
 }
 
 /**
@@ -424,6 +436,38 @@ export function continuousPlanFor(
 export interface RunDriveResult {
 	actionLog: ActionLogEntry[];
 	viewport: ViewportSize;
+	/** CR-LENSMITH-A011-6: the continuous plan the run followed; absent in settle mode. */
+	plan?: ContinuousPlan;
+}
+
+/**
+ * CR-LENSMITH-A011-6: step lists a caller marked for continuous narration (`demo --narration
+ * continuous`, or `"narration": "continuous"` in the step list). A set, not a field, so the list
+ * object and everything serialised from it stay byte-identical.
+ */
+export const continuousNarrationLists = new WeakSet<object>();
+
+/**
+ * The narration mode: the flag when given, else the step list's top-level `"narration"` field,
+ * else `settle`. Throws {@link DriveError} for any other value.
+ */
+export function narrationModeFrom(rawStepList: string, flag?: string): NarrationMode {
+	let value: unknown = flag;
+	if (value === undefined) {
+		try {
+			const parsed: unknown = JSON.parse(rawStepList);
+			if (typeof parsed === "object" && parsed !== null) {
+				value = (parsed as { narration?: unknown }).narration;
+			}
+		} catch {
+			value = undefined; // the step-list reader reports bad JSON by name
+		}
+	}
+	if (value === undefined || value === "settle") return "settle";
+	if (value === "continuous") return "continuous";
+	throw new DriveError(
+		`narration mode must be "settle" or "continuous" (got ${JSON.stringify(value)})`,
+	);
 }
 
 const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -1491,6 +1535,17 @@ export async function runDrive(
 		deps.narration === undefined
 			? undefined
 			: validateNarration(deps.narration, stepList as StepList);
+	let plan: ContinuousPlan | undefined;
+	const mode =
+		deps.narrationMode ?? (continuousNarrationLists.has(stepList) ? "continuous" : "settle");
+	if (mode === "continuous") {
+		if (narration === undefined) {
+			throw new DriveError(
+				"continuous narration needs the voice timings (narration) to plan against",
+			);
+		}
+		plan = continuousPlanFor(stepList, narration);
+	}
 
 	// CR-LENSMITH-A010-6: no `url` → a native-only run: no goto, no bring-to-front, no
 	// calibration; the result viewport is the capture size.
@@ -1501,11 +1556,15 @@ export async function runDrive(
 			now,
 			sleep,
 			narration,
+			plan,
 			t0,
 			offset: { x: 0, y: 0 },
 			viewport: { width: capture?.width ?? 0, height: capture?.height ?? 0 },
 		});
-		return { actionLog, viewport: { width: capture?.width ?? 0, height: capture?.height ?? 0 } };
+		const nativeViewport = { width: capture?.width ?? 0, height: capture?.height ?? 0 };
+		return plan
+			? { actionLog, viewport: nativeViewport, plan }
+			: { actionLog, viewport: nativeViewport };
 	}
 
 	const navigationTimeoutMs = deps.navigationTimeoutMs ?? DEFAULT_NAVIGATION_TIMEOUT_MS;
@@ -1559,8 +1618,16 @@ export async function runDrive(
 		);
 	}
 
-	const actionLog = await runSteps(stepList, deps, { now, sleep, narration, t0, offset, viewport });
-	return { actionLog, viewport };
+	const actionLog = await runSteps(stepList, deps, {
+		now,
+		sleep,
+		narration,
+		plan,
+		t0,
+		offset,
+		viewport,
+	});
+	return plan ? { actionLog, viewport, plan } : { actionLog, viewport };
 }
 
 /** Moves a web step's viewport box into capture space (screen = viewport + calibration offset). */
@@ -1588,21 +1655,60 @@ async function runSteps(
 		now: () => number;
 		sleep: (ms: number) => Promise<void>;
 		narration: NarrationTimings | undefined;
+		plan?: ContinuousPlan | undefined;
 		t0: number;
 		offset: PointLike;
 		viewport: ViewportSize;
 	},
 ): Promise<ActionLogEntry[]> {
-	const { now, sleep, narration, t0, offset, viewport } = run;
+	const { now, sleep, narration, plan, t0, offset, viewport } = run;
 	const { choreographer } = deps;
 	const actionLog: ActionLogEntry[] = [];
 	let lastPoint: PointLike | undefined;
+	// Continuous mode: how far the run has fallen behind the plan (a settle that outlasted the
+	// planned busy time). Every later planned time shifts by it, so marks keep landing on clicks.
+	let driftMs = 0;
 
 	for (let index = 0; index < stepList.steps.length; index += 1) {
 		const step = stepList.steps[index];
 		if (!step) continue; // unreachable — steps.length bounds the loop; satisfies noUncheckedIndexedAccess
 
-		const voice = voicePlanFor(step, index, narration);
+		let voice = voicePlanFor(step, index, narration);
+		const planned = plan?.steps[index];
+		if (plan && planned && voice) {
+			// Wait for this step's moment in the plan: the travel start, or the line start for a wait
+			// and for a web key step (no cursor travel: it presses on the mark).
+			const webKey = step.type === "key" && !isNativeStep(step);
+			const webWait = step.type === "wait" && !isNativeStep(step);
+			const plannedAtMs =
+				step.type === "wait"
+					? planned.lineStartMs
+					: webKey
+						? (planned.actionMs ?? planned.lineStartMs)
+						: (planned.travelStartMs ?? planned.lineStartMs);
+			const behindMs = now() - t0 - (plannedAtMs + driftMs);
+			if (behindMs > 0) driftMs += behindMs;
+			else await sleep(-behindMs);
+			const lineStartMs = planned.lineStartMs + driftMs;
+			if (webWait && "ms" in step) {
+				// A narrated web wait is just its line: the next step waits for its own planned moment.
+				const entry: ActionLogEntry = {
+					index,
+					type: "wait",
+					atMs: now() - t0,
+					ms: step.ms,
+					voiceLineId: voice.lineId,
+					voiceStartMs: lineStartMs,
+				};
+				actionLog.push(entry);
+				continue;
+			}
+			// The click functions extend the dwell so the action lands `markMs` after the travel starts:
+			// here that is the planned action time, measured from now (always >= travel + dwell).
+			if (planned.actionMs !== undefined && !webKey) {
+				voice = { ...voice, markMs: planned.actionMs + driftMs - (now() - t0) };
+			}
+		}
 
 		if (isNativeStep(step)) {
 			const native = deps.native;
@@ -1702,6 +1808,15 @@ async function runSteps(
 		// step (no breath after the last step: nothing follows it).
 		const driven = actionLog[actionLog.length - 1];
 		if (driven && "screenX" in driven) lastPoint = { x: driven.screenX, y: driven.screenY };
+		if (plan && planned) {
+			// Continuous: the voice starts are the plan's line starts; no hold, no breath — the next
+			// step waits for its own planned moment (Settle LOCK v1.1).
+			if (driven) {
+				driven.voiceLineId = narrationLineId(index);
+				driven.voiceStartMs = planned.lineStartMs + driftMs;
+			}
+			continue;
+		}
 		// Narrated: hold until max(settle + result hold, voice end + tail) — the camera never zooms out
 		// over the voice (pacing LOCK, CR-LENSMITH-A008-2).
 		let holdMs: number = SETTLE_PACING.resultHoldMs;
@@ -1716,7 +1831,42 @@ async function runSteps(
 		if (index < stepList.steps.length - 1) await sleep(pauseBeforeNextStepMs(false));
 	}
 
+	// Continuous: hold after the last word (payoff), then the film ends.
+	if (plan) {
+		const remainingMs = plan.endMs + driftMs - (now() - t0);
+		if (remainingMs > 0) await sleep(remainingMs);
+	}
 	return actionLog;
+}
+
+/**
+ * CR-LENSMITH-A011-6, continuous mode: each zoom region starts with its travel and ends when the
+ * next action's travel starts (the zoom-out may run under the voice, `underVoice: true`, a field
+ * the engine ignores); the last region ends at the film's end (`endMs`, the payoff hold).
+ */
+export function continuousZoomFragment(
+	fragment: ZoomFragment,
+	actionLog: readonly ActionLogEntry[],
+	endMs: number,
+): ZoomFragment {
+	const travelStartOf = (region: ZoomRegion): number => {
+		const entry = actionLog.find((e) => `zoom-${e.index}` === region.id);
+		if (!entry) return region.startMs;
+		return logMsToFilmMs("startedAtMs" in entry ? entry.startedAtMs : entry.atMs);
+	};
+	const starts = fragment.zoomRegions.map(travelStartOf);
+	return {
+		zoomRegions: fragment.zoomRegions.map((region, i) => {
+			const startMs = starts[i] ?? region.startMs;
+			const nextStartMs = starts[i + 1];
+			return {
+				...region,
+				startMs,
+				endMs: Math.max(startMs, nextStartMs ?? logMsToFilmMs(endMs)),
+				underVoice: true,
+			};
+		}),
+	};
 }
 
 const EXCLUSIVE_MACHINE_NOTICE =
@@ -1836,6 +1986,15 @@ export function registerDriveCommand(program: Command): void {
 				try {
 					const raw = readFileSync(opts.steps, "utf-8");
 					stepList = readDriveStepList(raw, opts.steps);
+					if (narrationModeFrom(raw) === "continuous") {
+						validateContinuousSteps(stepList);
+						if (opts.narration === undefined) {
+							throw new DriveError(
+								`"${opts.steps}" asks for continuous narration but no --narration timings were given`,
+							);
+						}
+						continuousNarrationLists.add(stepList);
+					}
 					if (stepList.url === undefined) {
 						throw new DriveError(
 							`"${opts.steps}" has no "url", so it is a native step list; native lists run ` +
@@ -1866,12 +2025,16 @@ export function registerDriveCommand(program: Command): void {
 							const page = await acquirePage(ctx);
 							try {
 								await choreographer.start();
-								const { actionLog, viewport } = await runDrive(stepList, {
+								const { actionLog, viewport, plan } = await runDrive(stepList, {
 									page,
 									choreographer,
 									narration,
 								});
-								const { fragment, warnings } = emitZoomRegions(actionLog, viewport);
+								const emitted = emitZoomRegions(actionLog, viewport);
+								const { warnings } = emitted;
+								const fragment = plan
+									? continuousZoomFragment(emitted.fragment, actionLog, plan.endMs)
+									: emitted.fragment;
 								for (const warning of warnings) console.error(`warning: ${warning}`);
 
 								writeFileSync(opts.out, `${JSON.stringify(actionLog, null, 2)}\n`, "utf-8");

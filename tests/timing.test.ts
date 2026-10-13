@@ -1,12 +1,18 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	type ChoreographerLike,
 	continuousPlanFor,
+	continuousZoomFragment,
 	DriveError,
 	type NarrationTimings,
+	narrationModeFrom,
+	runDrive,
 	settleInPage,
 	validateContinuousSteps,
 } from "../src/commands/drive.js";
+import type { ActionLogEntry } from "../src/lib/actionLog.js";
+import type { DriveStepList } from "../src/lib/stepList.js";
 import {
 	CONTINUOUS_NARRATION,
 	DEFAULT_MOVE_DURATION_MS,
@@ -360,6 +366,80 @@ describe("planContinuousNarration (Settle LOCK v1.1, CR-LENSMITH-A011-6)", () =>
 		).toThrow(DriveError);
 		expect(() => validateContinuousSteps({ steps: [{ type: "click", selector: "#go" }] })).toThrow(
 			/step at index 0 \(type "click"\) has no "say" line/,
+		);
+	});
+});
+
+describe("continuous narration wiring (CR-LENSMITH-A011-6)", () => {
+	it("reads the mode from the flag, else the step list, else settle", () => {
+		expect(narrationModeFrom('{"steps":[]}')).toBe("settle");
+		expect(narrationModeFrom('{"narration":"continuous","steps":[]}')).toBe("continuous");
+		expect(narrationModeFrom('{"narration":"continuous"}', "settle")).toBe("settle");
+		expect(() => narrationModeFrom('{"narration":"loud"}')).toThrow(/settle" or "continuous/);
+	});
+
+	it("drives narrated waits on the plan: voice starts 300 ms apart, film ends at the payoff hold", async () => {
+		let clock = 0;
+		const timings: NarrationTimings = {
+			lines: { s0: { durationMs: 1000, marks: {} }, s1: { durationMs: 2000, marks: {} } },
+		};
+		const list = {
+			steps: [
+				{ type: "wait", ms: 5000, say: "One." },
+				{ type: "wait", ms: 5000, say: "Two." },
+			],
+		} as unknown as DriveStepList;
+		const { actionLog, plan } = await runDrive(list, {
+			choreographer: {} as ChoreographerLike,
+			narration: timings,
+			narrationMode: "continuous",
+			now: () => clock,
+			sleep: async (ms) => {
+				clock += ms;
+			},
+		});
+		expect(actionLog.map((e) => e.voiceStartMs)).toEqual([0, 1300]);
+		expect(plan?.endMs).toBe(1300 + 2000 + CONTINUOUS_NARRATION.finalHoldMs);
+		expect(clock).toBe(plan?.endMs);
+	});
+
+	it("refuses a continuous run without voice timings", async () => {
+		await expect(
+			runDrive({ steps: [{ type: "wait", ms: 1, say: "x" }] } as unknown as DriveStepList, {
+				choreographer: {} as ChoreographerLike,
+				narrationMode: "continuous",
+				now: () => 0,
+				sleep: async () => undefined,
+			}),
+		).rejects.toThrow(/needs the voice timings/);
+	});
+
+	it("ends each zoom region where the next travel starts, the last at the film end, under voice", () => {
+		const log = [
+			{ index: 2, type: "click", startedAtMs: 1000, clickedAtMs: 2400 },
+			{ index: 3, type: "click", startedAtMs: 4000, clickedAtMs: 5400 },
+		] as unknown as ActionLogEntry[];
+		const region = (id: string, startMs: number) => ({
+			id,
+			startMs,
+			endMs: startMs + 3000,
+			focus: { cx: 0.5, cy: 0.5 },
+			connect: false,
+			depth: 3,
+			customScale: 1.8,
+			source: "auto" as const,
+		});
+		const out = continuousZoomFragment(
+			{ zoomRegions: [region("zoom-2", 1000), region("zoom-3", 6500)] },
+			log,
+			9000,
+		);
+		expect(out.zoomRegions.map((r) => [r.startMs, r.endMs])).toEqual([
+			[1000, 4000],
+			[4000, 9000],
+		]);
+		expect(out.zoomRegions.every((r) => (r as { underVoice?: boolean }).underVoice === true)).toBe(
+			true,
 		);
 	});
 });

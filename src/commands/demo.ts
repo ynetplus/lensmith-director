@@ -76,17 +76,22 @@ import {
 	activateProcessMac,
 	type ChoreographerLike,
 	type ChromeWindowInfo,
+	continuousNarrationLists,
+	continuousZoomFragment,
 	DEFAULT_BROWSER_CHANNEL,
 	DRIVEN_WINDOW,
 	defaultProfileDir,
 	discoverDrivenWindowId,
 	type ListChromeWindows,
 	listChromeWindowsMac,
+	type NarrationMode,
 	type NarrationTimings,
 	narrationLineId,
+	narrationModeFrom,
 	type RunDriveResult,
 	readNarrationTimings,
 	runDrive,
+	validateContinuousSteps,
 	withLaunchedChrome,
 } from "./drive.js";
 
@@ -127,6 +132,11 @@ export interface DemoRunOptions {
 	narrateEngine?: string;
 	/** CR-LENSMITH-A008-6: passed through to the engine's `voiceover --captions`; omitted = the engine default (burn). */
 	captions?: "burn" | "srt" | "none";
+	/**
+	 * CR-LENSMITH-A011-6: `continuous` = the voice never stops (Settle LOCK v1.1); omitted = the
+	 * step list's `"narration"` field, else `settle` (unchanged).
+	 */
+	narrationMode?: NarrationMode;
 }
 
 interface DemoPaths {
@@ -914,6 +924,11 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 	try {
 		const raw = readFileSync(opts.stepsPath, "utf-8");
 		driveList = readDriveStepList(raw, opts.stepsPath);
+		// CR-LENSMITH-A011-6: continuous narration refuses a silent step before anything launches.
+		if (narrationModeFrom(raw, opts.narrationMode) === "continuous") {
+			validateContinuousSteps(driveList);
+			continuousNarrationLists.add(driveList);
+		}
 	} catch (error) {
 		throw new DemoError("steps", messageOf(error));
 	}
@@ -1090,7 +1105,12 @@ export async function runDemo(opts: DemoRunOptions, deps: RunDemoDeps = {}): Pro
 		}
 		const drivenResult = driveResult as RunDriveResult;
 
-		const { fragment, warnings } = emitZoomRegions(drivenResult.actionLog, drivenResult.viewport);
+		const emitted = emitZoomRegions(drivenResult.actionLog, drivenResult.viewport);
+		const { warnings } = emitted;
+		// CR-LENSMITH-A011-6: continuous regions end where the next travel starts, zoom-out under voice.
+		const fragment = drivenResult.plan
+			? continuousZoomFragment(emitted.fragment, drivenResult.actionLog, drivenResult.plan.endMs)
+			: emitted.fragment;
 		for (const warning of warnings) console.error(`demo: warning: ${warning}`);
 		writeFileSync(paths.actionLog, `${JSON.stringify(drivenResult.actionLog, null, 2)}\n`, "utf-8");
 		writeFileSync(paths.zoomFragment, `${JSON.stringify(fragment, null, 2)}\n`, "utf-8");
@@ -1349,6 +1369,10 @@ export function registerDemoCommand(program: Command): void {
 			"narration engine, passed to the engine's `narrate --engine` (kokoro default, or edge)",
 		)
 		.option(
+			"--narration <mode>",
+			"settle (default: Settle pacing, unchanged) or continuous (the voice never stops: every step needs a say line, lines at most 300 ms apart)",
+		)
+		.option(
 			"--captions <mode>",
 			"captions on the narrated film, passed to the engine's `voiceover --captions`: burn (default), srt or none",
 		)
@@ -1366,8 +1390,14 @@ export function registerDemoCommand(program: Command): void {
 				voice?: string;
 				engine?: string;
 				captions?: string;
+				narration?: string;
 			}) => {
 				console.error(EXCLUSIVE_MACHINE_NOTICE);
+				if (opts.narration !== undefined && !["settle", "continuous"].includes(opts.narration)) {
+					console.error(`demo: --narration must be settle or continuous (got '${opts.narration}')`);
+					process.exitCode = 1;
+					return;
+				}
 				if (opts.captions !== undefined && !["burn", "srt", "none"].includes(opts.captions)) {
 					console.error(`demo: --captions must be burn, srt or none (got '${opts.captions}')`);
 					process.exitCode = 1;
@@ -1383,6 +1413,9 @@ export function registerDemoCommand(program: Command): void {
 						...(opts.engine !== undefined ? { narrateEngine: opts.engine } : {}),
 						...(opts.captions !== undefined
 							? { captions: opts.captions as "burn" | "srt" | "none" }
+							: {}),
+						...(opts.narration !== undefined
+							? { narrationMode: opts.narration as NarrationMode }
 							: {}),
 					});
 					console.log(
