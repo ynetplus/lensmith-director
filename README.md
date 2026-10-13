@@ -90,9 +90,9 @@ All of them except `cursor position`, `native doctor` and `native tree` post rea
 
 | Step | Fields | What happens |
 |---|---|---|
-| `click` | `app`, `ax`, optional `expect` | Cursor travels to the element, dwells, clicks for real |
+| `click` | `app`, `ax`, optional `expect`; on the web `selector`, optional `button` (`"left"` default, or `"right"`) | Cursor travels to the element, dwells, clicks for real; a web right-click is posted by the browser at the point the cursor reached, so the page opens its context menu |
 | `type` | `app`, optional `ax` (clicked to focus), `text` or `textFrom.keychain` | Types at a human pace |
-| `key` | `app`, `keys`, optional `zoom` | Posts a chord such as `"cmd+shift+v"`, or an array of chords |
+| `key` | `app`, `keys`, optional `zoom`; on the web `keys` with no `app`, optional `selector` (focused first) | Posts a chord such as `"cmd+shift+v"`, or an array of chords; a web key goes to the focused page (`enter` also names `return`, `fn` is refused) and needs `url` |
 | `hover` | `app`, `ax`, optional `expect` | Cursor travels and dwells, no click |
 | `activate` | `app` | Brings the app to the front |
 | `wait` | `app`, `until`, `timeoutMs` | Waits for an element to appear (`wait` with `ms` is unchanged) |
